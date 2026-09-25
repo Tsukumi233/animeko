@@ -9,6 +9,8 @@
 
 package me.him188.ani.utils.httpdownloader
 
+import io.ktor.client.call.body
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.HttpStatement
@@ -260,7 +262,7 @@ open class KtorHttpDownloader(
                     it.copy(
                         status = FAILED,
                         error = DownloadError(
-                            code = if (e is M3u8Exception) e.errorCode else DownloadErrorCode.UNEXPECTED_ERROR,
+                            code = e.downloadErrorCode(),
                             technicalMessage = e.toString(),
                         ),
                         timestamp = clock.now().toEpochMilliseconds(),
@@ -351,7 +353,7 @@ open class KtorHttpDownloader(
                 updateState(downloadId) {
                     it.copy(
                         status = FAILED,
-                        error = DownloadError(DownloadErrorCode.UNEXPECTED_ERROR, technicalMessage = t.message),
+                        error = DownloadError(t.downloadErrorCode(), technicalMessage = t.message),
                     )
                 }
                 emitProgress(downloadId)
@@ -372,6 +374,13 @@ open class KtorHttpDownloader(
         headers: Map<String, String>,
         contentIdentity: String?,
     ): Boolean {
+        // A terminal progress update can arrive before its writer finishes closing files.
+        val previousJob = stateMutex.withLock {
+            val entry = _downloadStatesFlow.value[downloadId] ?: return false
+            if (entry.state.status !in listOf(PAUSED, FAILED)) return false
+            entry.job
+        }
+        previousJob?.join()
         val snapshot = stateMutex.withLock {
             val entry = _downloadStatesFlow.value[downloadId] ?: return false
             if (entry.state.status !in listOf(PAUSED, FAILED) || entry.job?.isCompleted == false) return false
@@ -701,7 +710,7 @@ open class KtorHttpDownloader(
             it.copy(
                 status = FAILED,
                 error = DownloadError(
-                    code = if (e is M3u8Exception) e.errorCode else DownloadErrorCode.UNEXPECTED_ERROR,
+                    code = e.downloadErrorCode(),
                     technicalMessage = e.message,
                 ),
                 timestamp = clock.now().toEpochMilliseconds(),
@@ -768,7 +777,12 @@ open class KtorHttpDownloader(
                     recordSegmentFailure(snapshot.downloadId, null, attempt, requestOptions.maxRetriesPerSegment, error)
                 },
             ) {
-                httpGet(encryption.keyUri, requestOptions) { it.body<ByteArray>() }
+                httpGet(encryption.keyUri, requestOptions) { statement ->
+                    statement.execute { response ->
+                        requireHttpSuccess(response.status.value)
+                        response.body<ByteArray>()
+                    }
+                }
             }
             writeBytesToFile(keyPath, keyBytes)
         }
@@ -986,7 +1000,7 @@ open class KtorHttpDownloader(
             // ByteArray. 当服务器不支持 range 请求时 segment 没有大小上限, 一个几百 MB 的视频
             // 会直接撑爆堆内存.
             statement.execute { response ->
-                require(response.status.value in 200..299) { "Segment request failed: ${response.status.value}" }
+                requireHttpSuccess(response.status.value)
                 val start = segmentInfo.rangeStart
                 val end = segmentInfo.rangeEnd
                 if (start != null && end != null) {
@@ -1322,7 +1336,7 @@ open class KtorHttpDownloader(
                 throw ce
             } catch (ex: Throwable) {
                 onFailure(attempt, ex)
-                if (attempt >= maxRetries) {
+                if (ex.downloadErrorCode() == DownloadErrorCode.HTTP_ACCESS_EXPIRED || attempt >= maxRetries) {
                     logger.info {
                         "Segment download failed after $attempt/$maxRetries attempts; no more retries. " +
                                 "Error: ${ex.message}"
@@ -1411,3 +1425,17 @@ private fun SegmentInfo.localPlaylistPath(): String =
 
 private fun String.stablePathId(): String =
     hashCode().toUInt().toString(16)
+
+private class HttpAccessExpiredException(status: Int) : IllegalStateException("HTTP access rejected: $status")
+
+private fun requireHttpSuccess(status: Int) {
+    if (status in listOf(401, 403, 410)) throw HttpAccessExpiredException(status)
+    require(status in 200..299) { "HTTP request failed: $status" }
+}
+
+private fun Throwable.downloadErrorCode(): DownloadErrorCode = when {
+    this is HttpAccessExpiredException || this is ResponseException && response.status.value in listOf(401, 403, 410) ->
+        DownloadErrorCode.HTTP_ACCESS_EXPIRED
+    this is M3u8Exception -> errorCode
+    else -> DownloadErrorCode.UNEXPECTED_ERROR
+}

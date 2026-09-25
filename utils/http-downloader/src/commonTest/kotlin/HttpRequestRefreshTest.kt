@@ -30,6 +30,43 @@ import kotlin.test.assertTrue
 
 class HttpRequestRefreshTest {
     @Test
+    fun `expired HTTP segment and HLS key stop same access retries immediately`() = runTest {
+        for (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone)) {
+            for (hls in listOf(false, true)) {
+                for (expectSuccess in listOf(false, true)) {
+                    val dir = SystemTemporaryDirectory.resolve("expiry-${Uuid.randomString()}")
+                    SystemFileSystem.createDirectories(dir)
+                    var requests = 0
+                    val client = HttpClient(MockEngine {
+                        requests++
+                        respond("Access expired", status)
+                    }) { this.expectSuccess = expectSuccess }
+                    val downloader = TestDownloader(client, dir, this)
+                    try {
+                        val initial = state().copy(mediaType = if (hls) MediaType.M3U8 else MediaType.MP4,
+                            segments = listOf(SegmentInfo(0, "https://test/segment", false,
+                                encryption = if (hls) SegmentEncryptionInfo("AES-128", "https://test/key", null) else null,
+                                relativeTempFilePath = "segments/0.part")),
+                            totalSegments = 1, downloadedBytes = 0)
+                        downloader.restore(initial)
+                        downloader.resume(initial.downloadId)
+                        downloader.joinDownload(initial.downloadId)
+                        val failed = downloader.getState(initial.downloadId)!!
+                        assertEquals(DownloadStatus.FAILED, failed.status)
+                        assertEquals(DownloadErrorCode.HTTP_ACCESS_EXPIRED, failed.error?.code)
+                        assertEquals(1, requests)
+                        assertEquals(0L, failed.downloadedBytes)
+                    } finally {
+                        downloader.close()
+                        client.close()
+                        SystemFileSystem.deleteRecursively(dir)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `refresh preserves downloaded segments and replaces credentials after restart`() = runTest {
         fixture(this) { downloader, dir ->
             val old = state()

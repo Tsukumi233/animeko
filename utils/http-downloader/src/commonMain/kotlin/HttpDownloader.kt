@@ -154,6 +154,7 @@ value class DownloadId(val value: String) {
 
 @Serializable
 enum class DownloadErrorCode {
+    HTTP_ACCESS_EXPIRED,
     NO_MEDIA_LIST,
     UNEXPECTED_ERROR,
 }

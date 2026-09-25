@@ -1,6 +1,9 @@
 package me.him188.ani.app.domain.media.cache.engine
 
 import com.sun.net.httpserver.HttpServer
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,12 +23,14 @@ import me.him188.ani.app.domain.media.download.capability.DownloadTransport
 import me.him188.ani.app.domain.media.download.capability.MediaDownloadAccessRequest
 import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapability
 import me.him188.ani.app.domain.media.download.capability.PreparedDownloadAccess
+import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.app.domain.media.resolver.TestUniversalMediaResolver
 import me.him188.ani.datasources.api.EpisodeSort
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
 import me.him188.ani.datasources.api.source.MediaResourceRef
 import me.him188.ani.datasources.api.topic.ResourceLocation
+import me.him188.ani.utils.httpdownloader.DownloadErrorCode
 import me.him188.ani.utils.httpdownloader.DownloadId
 import me.him188.ani.utils.httpdownloader.DownloadOptions
 import me.him188.ani.utils.httpdownloader.DownloadState
@@ -39,6 +44,8 @@ import me.him188.ani.utils.ktor.asScopedHttpClient
 import me.him188.ani.utils.platform.Uuid
 import java.net.InetSocketAddress
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -61,7 +68,15 @@ class HttpCacheRestorePipelineTest {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val client = createDefaultHttpClient()
         val downloader = KtorPersistentHttpDownloader(dao, client.asScopedHttpClient(), SystemFileSystem, directory, scope = scope)
-        var prepares = 0
+        @Volatile var prepares = 0
+        var expiredPreparations = 0
+        var blockExpiredSegment = false
+        val expiredSegmentStarted = CompletableDeferred<Unit>()
+        val allowExpiredSegment = CountDownLatch(1)
+        var replacementIdentity: String? = null
+        var blockRecovery = false
+        val recoveryStarted = CompletableDeferred<Unit>()
+        val recoveryCanceled = CompletableDeferred<Unit>()
         var offline = false
         var identity = "v1"
         val id = DownloadId("release")
@@ -74,7 +89,12 @@ class HttpCacheRestorePipelineTest {
                 val range = exchange.requestHeaders.getFirst("Range")
                 val auth = exchange.requestHeaders.getFirst("Authorization")
                 requests += "${exchange.requestURI.path}|$auth|$range"
-                if (exchange.requestURI.path != "/fresh.mp4" || auth != "fresh") {
+                if (blockExpiredSegment && auth == "expired" && range != "bytes=0-0") {
+                    expiredSegmentStarted.complete(Unit)
+                    allowExpiredSegment.await(5, TimeUnit.SECONDS)
+                }
+                val refreshProbe = exchange.requestURI.path == "/refreshable.mp4" && range == "bytes=0-0"
+                if (!refreshProbe && (exchange.requestURI.path != "/fresh.mp4" || auth != "fresh")) {
                     exchange.sendResponseHeaders(403, -1)
                 } else {
                     val bounds = range?.removePrefix("bytes=")?.split('-')?.map(String::toInt) ?: listOf(0, 5)
@@ -96,8 +116,15 @@ class HttpCacheRestorePipelineTest {
             override suspend fun prepare(request: MediaDownloadAccessRequest, scope: CoroutineScope): PreparedDownloadAccess.Http {
                 prepares++
                 check(!offline) { "Source offline" }
-                return PreparedDownloadAccess.Http("http://127.0.0.1:${server.address.port}/fresh.mp4",
-                    DownloadOptions(headers = mapOf("Authorization" to "fresh"), contentIdentity = identity), refreshable = true)
+                if (prepares > 1 && blockRecovery) {
+                    recoveryStarted.complete(Unit)
+                    try { awaitCancellation() } finally { recoveryCanceled.complete(Unit) }
+                }
+                val expired = prepares <= expiredPreparations
+                val path = if (expired) "refreshable.mp4" else "fresh.mp4"
+                return PreparedDownloadAccess.Http("http://127.0.0.1:${server.address.port}/$path",
+                    DownloadOptions(headers = mapOf("Authorization" to if (expired) "expired" else "fresh"),
+                        contentIdentity = if (prepares > 1) replacementIdentity ?: identity else identity), refreshable = true)
             }
         }
         val engine = HttpMediaCacheEngine(downloader, directory, TestUniversalMediaResolver, "cache", dao,
@@ -114,6 +141,7 @@ class HttpCacheRestorePipelineTest {
         }
 
         suspend fun close() {
+            allowExpiredSegment.countDown()
             downloader.close()
             job.cancelAndJoin()
             client.close()
@@ -126,6 +154,79 @@ class HttpCacheRestorePipelineTest {
     private fun test(block: suspend Fixture.() -> Unit) = runBlocking {
         val fixture = Fixture()
         try { withTimeout(20_000) { fixture.block() } } finally { fixture.close() }
+    }
+
+    @Test
+    fun `new transfer keeps expiry recovery when storage repeats resume during active transfer`() = test {
+        expiredPreparations = 1
+        blockExpiredSegment = true
+        val cache = engine.createCache(media, metadata,
+            EpisodeMetadata(metadata.episodeName, metadata.episodeEp, metadata.episodeSort, 11), scope.coroutineContext)
+        expiredSegmentStarted.await()
+        cache.resume()
+        allowExpiredSegment.countDown()
+        val complete = downloader.downloadStatesFlow.first { states -> states.any { it.status == DownloadStatus.COMPLETED } }.single()
+        assertEquals(2, prepares)
+        assertEquals(6L, complete.downloadedBytes)
+        assertContentEquals("abcdef".toByteArray(), SystemFileSystem.source(directory.resolve(complete.relativeOutputPath)).buffered().use { it.readByteArray() })
+    }
+
+    @Test
+    fun `running expired access refreshes once and preserves completed segment bytes`() = test {
+        seed()
+        expiredPreparations = 1
+        val cache = requireNotNull(engine.restore(media, metadata, scope.coroutineContext))
+        cache.resume()
+        downloader.downloadStatesFlow.first { states -> states.any { it.status == DownloadStatus.COMPLETED } }
+        assertEquals(2, prepares)
+        assertEquals(1, requests.count { it == "/refreshable.mp4|expired|bytes=3-5" })
+        assertTrue(requests.none { it.endsWith("bytes=0-2") })
+        assertContentEquals("abcdef".toByteArray(), SystemFileSystem.source(directory.resolve("result.mp4")).buffered().use { it.readByteArray() })
+    }
+
+    @Test
+    fun `second expired access remains failed without an automatic refresh loop`() = test {
+        seed()
+        expiredPreparations = Int.MAX_VALUE
+        val cache = requireNotNull(engine.restore(media, metadata, scope.coroutineContext))
+        cache.resume()
+        downloader.downloadStatesFlow.first { states -> prepares == 2 && states.any {
+            it.status == DownloadStatus.FAILED && requests.count { request -> request.endsWith("bytes=3-5") } == 2
+        } }
+        delay(100)
+        assertEquals(2, prepares)
+        assertEquals(3L, downloader.getState(id)!!.downloadedBytes)
+        assertEquals(DownloadErrorCode.HTTP_ACCESS_EXPIRED, downloader.getState(id)!!.error?.code)
+    }
+
+    @Test
+    fun `automatic expiry refresh fails closed when immutable content changes`() = test {
+        seed()
+        expiredPreparations = 1
+        replacementIdentity = "v2"
+        val cache = requireNotNull(engine.restore(media, metadata, scope.coroutineContext))
+        cache.resume()
+        downloader.downloadStatesFlow.first { states -> states.any { it.error?.technicalMessage?.contains("create it again") == true } }
+        assertEquals(2, prepares)
+        assertEquals("v1", downloader.getState(id)!!.contentIdentity)
+        assertEquals(3L, downloader.getState(id)!!.downloadedBytes)
+        assertTrue(requests.none { it.startsWith("/fresh.mp4") })
+        assertContentEquals("abc".toByteArray(), SystemFileSystem.source(directory.resolve("segments/0.part")).buffered().use { it.readByteArray() })
+    }
+
+    @Test
+    fun `pause cancels in flight credential recovery without restarting transport`() = test {
+        seed()
+        expiredPreparations = 1
+        blockRecovery = true
+        val cache = requireNotNull(engine.restore(media, metadata, scope.coroutineContext))
+        cache.resume()
+        recoveryStarted.await()
+        cache.pause()
+        recoveryCanceled.await()
+        assertEquals(2, prepares)
+        assertEquals(3L, downloader.getState(id)!!.downloadedBytes)
+        assertTrue(requests.none { it.startsWith("/fresh.mp4") })
     }
 
     @Test

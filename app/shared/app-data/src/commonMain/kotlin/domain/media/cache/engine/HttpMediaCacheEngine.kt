@@ -10,6 +10,13 @@
 package me.him188.ani.app.domain.media.cache.engine
 
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -47,6 +54,7 @@ import me.him188.ani.datasources.api.topic.FileSize
 import me.him188.ani.datasources.api.topic.FileSize.Companion.bytes
 import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.utils.coroutines.IO_
+import me.him188.ani.utils.httpdownloader.DownloadErrorCode
 import me.him188.ani.utils.httpdownloader.DownloadId
 import me.him188.ani.utils.httpdownloader.DownloadProgress
 import me.him188.ani.utils.httpdownloader.DownloadState
@@ -145,7 +153,9 @@ class HttpMediaCacheEngine(
         val downloadId = httpDownloadId(origin, metadata)
         downloader.downloadWithId(downloadId, access.url, access.options)
             ?: error("Failed to create HTTP download $downloadId")
-        return HttpMediaCache(origin, downloadId, metadata, parentContext)
+        return HttpMediaCache(origin, downloadId, metadata, parentContext).also {
+            if (access.refreshable) it.watchForExpiredAccess()
+        }
     }
 
     private suspend fun prepareAccess(origin: Media, metadata: MediaCacheMetadata, episode: EpisodeMetadata, parentContext: CoroutineContext): PreparedDownloadAccess.Http {
@@ -157,16 +167,17 @@ class HttpMediaCacheEngine(
 
     private suspend fun resumeDownload(
         origin: Media, metadata: MediaCacheMetadata, id: DownloadId, parentContext: CoroutineContext,
-    ) {
-        val state = downloader.getState(id) ?: return
-        if (state.status !in listOf(DownloadStatus.PAUSED, DownloadStatus.FAILED)) return
+    ): Boolean {
+        val state = downloader.getState(id) ?: return false
+        if (state.status !in listOf(DownloadStatus.PAUSED, DownloadStatus.FAILED)) return false
         val access = prepareAccess(origin, metadata, EpisodeMetadata(metadata.episodeName, metadata.episodeEp, metadata.episodeSort, metadata.episodeId.toIntOrNull()), parentContext)
         if (access.refreshable) {
             check(downloader.refreshRequest(id, access.url, access.options.headers, access.options.contentIdentity)) {
                 "Download request could not be refreshed"
             }
         }
-        downloader.resume(id)
+        val resumed = downloader.resume(id)
+        return resumed && access.refreshable
     }
 
     /**
@@ -264,6 +275,37 @@ class HttpMediaCacheEngine(
         }
         override val isDeleted: MutableStateFlow<Boolean> = MutableStateFlow(false)
         private val closeMutex = Mutex()
+        private var recoveryJob: Job? = null
+
+        /** One fresh-access attempt per explicit create/resume; retry failure remains visible. */
+        internal fun watchForExpiredAccess() {
+            recoveryJob = CoroutineScope(parentContext).launch {
+                try {
+                    val stopped = downloader.getProgressFlow(downloadId).first {
+                        it.status in listOf(DownloadStatus.FAILED, DownloadStatus.PAUSED, DownloadStatus.COMPLETED, DownloadStatus.CANCELED)
+                    }
+                    if (stopped.status != DownloadStatus.FAILED || stopped.error?.code != DownloadErrorCode.HTTP_ACCESS_EXPIRED) return@launch
+                    val access = prepareAccess(origin, metadata,
+                        EpisodeMetadata(metadata.episodeName, metadata.episodeEp, metadata.episodeSort, metadata.episodeId.toIntOrNull()),
+                        coroutineContext)
+                    currentCoroutineContext().ensureActive()
+                    if (!access.refreshable) return@launch
+                    if (downloader.refreshRequest(downloadId, access.url, access.options.headers, access.options.contentIdentity)) {
+                        currentCoroutineContext().ensureActive()
+                        downloader.resume(downloadId)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.warn(e) { "HTTP access recovery failed for $downloadId" }
+                }
+            }
+        }
+
+        private suspend fun stopRecovery() {
+            recoveryJob?.cancelAndJoin()
+            recoveryJob = null
+        }
 
         override suspend fun getCachedMedia(): CachedMedia {
             val state = downloader.getState(downloadId)
@@ -317,25 +359,36 @@ class HttpMediaCacheEngine(
         }
 
         override suspend fun pause() {
-            downloader.pause(downloadId)
+            closeMutex.withLock {
+                stopRecovery()
+                downloader.pause(downloadId)
+            }
         }
 
         override suspend fun close() {
             if (isDeleted.value) return
             closeMutex.withLock {
                 if (isDeleted.value) return
+                stopRecovery()
                 downloader.cancel(downloadId)
             }
         }
 
         override suspend fun resume() {
-            resumeDownload(origin, metadata, downloadId, parentContext)
+            closeMutex.withLock {
+                if (isDeleted.value) return
+                val status = downloader.getState(downloadId)?.status ?: return
+                if (status !in listOf(DownloadStatus.PAUSED, DownloadStatus.FAILED)) return
+                stopRecovery()
+                if (resumeDownload(origin, metadata, downloadId, parentContext)) watchForExpiredAccess()
+            }
         }
 
         override suspend fun closeAndDeleteFiles() {
             if (isDeleted.value) return
             closeMutex.withLock {
                 if (isDeleted.value) return
+                stopRecovery()
                 val removed = downloader.remove(downloadId)
                 if (!removed) {
                     dao.getById(downloadId)?.let { state ->
