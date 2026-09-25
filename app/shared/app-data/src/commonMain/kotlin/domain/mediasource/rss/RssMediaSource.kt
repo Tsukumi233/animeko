@@ -27,6 +27,12 @@ import me.him188.ani.datasources.api.paging.Paged
 import me.him188.ani.datasources.api.paging.SizedSource
 import me.him188.ani.datasources.api.paging.map
 import me.him188.ani.datasources.api.paging.merge
+import me.him188.ani.datasources.api.source.MediaSourceBrowser
+import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
+import me.him188.ani.datasources.api.source.MediaSourceSearchScope
+import me.him188.ani.datasources.api.source.MediaResourceRef
+import me.him188.ani.datasources.api.source.MediaSourcePage
+import me.him188.ani.datasources.api.source.TorrentMediaSourceReferences
 import me.him188.ani.datasources.api.source.ConnectionStatus
 import me.him188.ani.datasources.api.source.FactoryId
 import me.him188.ani.datasources.api.source.HttpMediaSource
@@ -83,7 +89,26 @@ class RssMediaSource(
     config: MediaSourceConfig,
     override val kind: MediaSourceKind = MediaSourceKind.BitTorrent,
     private val client: ScopedHttpClient,
-) : HttpMediaSource() {
+) : HttpMediaSource(), MediaSourceBrowser, MediaSourceResourceFactory {
+    override val supportsRootBrowse: Boolean get() = false
+    override val searchScope: MediaSourceSearchScope get() = MediaSourceSearchScope.SOURCE
+    override suspend fun browse(parent: MediaResourceRef?, pageToken: String?): MediaSourcePage =
+        throw UnsupportedOperationException("Search for a torrent release first")
+
+    override suspend fun search(keyword: String, parent: MediaResourceRef?, pageToken: String?): MediaSourcePage {
+        require(parent == null)
+        val page = pageToken?.toIntOrNull() ?: if (pageToken == null) 0 else error("Invalid page token")
+        require(page >= 0 && (usePaging || pageToken == null))
+        val result = engine.search(searchConfig, RssSearchQuery(keyword, listOf(keyword), EpisodeSort(0), null, null),
+            page, mediaSourceId)
+        result.error?.let { throw it }
+        val channel = requireNotNull(result.channel) { "RSS response has no channel" }
+        return MediaSourcePage(result.allMediaList.orEmpty().map(TorrentMediaSourceReferences::entry),
+            if (usePaging && channel.items.isNotEmpty()) (page + 1).toString() else null)
+    }
+
+    override suspend fun createMedia(reference: MediaResourceRef, request: MediaFetchRequest): Media =
+        TorrentMediaSourceReferences.decode(reference, mediaSourceId)
     companion object {
         val FactoryId = FactoryId("rss")
     }

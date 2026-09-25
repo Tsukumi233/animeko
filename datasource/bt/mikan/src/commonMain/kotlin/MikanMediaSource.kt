@@ -9,6 +9,8 @@
 
 package me.him188.ani.datasources.mikan
 
+import io.ktor.client.call.body
+
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -28,6 +30,13 @@ import kotlinx.datetime.toInstant
 import kotlinx.io.IOException
 import me.him188.ani.datasources.api.paging.SinglePagePagedSource
 import me.him188.ani.datasources.api.paging.SizedSource
+import me.him188.ani.datasources.api.source.MediaSourceBrowser
+import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
+import me.him188.ani.datasources.api.source.MediaSourceSearchScope
+import me.him188.ani.datasources.api.source.MediaResourceRef
+import me.him188.ani.datasources.api.source.MediaSourcePage
+import me.him188.ani.datasources.api.source.TorrentMediaSourceReferences
+import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.source.ConnectionStatus
 import me.him188.ani.datasources.api.source.FactoryId
 import me.him188.ani.datasources.api.source.HttpMediaSource
@@ -135,7 +144,30 @@ abstract class AbstractMikanMediaSource(
     baseUrl: String,
     private val indexCacheProvider: MikanIndexCacheProvider,
     private val client: ScopedHttpClient,
-) : HttpMediaSource() {
+) : HttpMediaSource(), MediaSourceBrowser, MediaSourceResourceFactory {
+    override val supportsRootBrowse: Boolean get() = false
+    override val searchScope: MediaSourceSearchScope get() = MediaSourceSearchScope.SOURCE
+    override suspend fun browse(parent: MediaResourceRef?, pageToken: String?): MediaSourcePage =
+        throw UnsupportedOperationException("Search for a torrent release first")
+
+    override suspend fun search(keyword: String, parent: MediaResourceRef?, pageToken: String?): MediaSourcePage {
+        require(parent == null && pageToken == null)
+        return client.use {
+            val response = prepareGet("$baseUrl/RSS/Search") { parameter("searchstr", keyword) }
+            val topics = response.execute { result ->
+                check(result.status.isSuccess()) { "Mikan search failed: HTTP ${result.status.value}" }
+                result.body<ByteReadChannel>().toSource().use {
+                    val document = Xml.parse(it, baseUrl)
+                    check(document.getElementsByTag("channel").isNotEmpty()) { "Mikan response has no RSS channel" }
+                    parseRssTopicList(document, baseUrl)
+                }
+            }
+            MediaSourcePage(topics.map { TorrentMediaSourceReferences.entry(it.toOnlineMedia(mediaSourceId)) })
+        }
+    }
+
+    override suspend fun createMedia(reference: MediaResourceRef, request: MediaFetchRequest): Media =
+        TorrentMediaSourceReferences.decode(reference, mediaSourceId)
     override val kind: MediaSourceKind get() = MediaSourceKind.BitTorrent
 
     private val baseUrl = baseUrl.removeSuffix("/")

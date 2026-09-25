@@ -16,6 +16,10 @@ plugins {
 
 
 kotlin {
+    sourceSets.getByName("jvmTest").dependencies {
+        implementation(libs.ktor.client.mock)
+        implementation(libs.kotlinx.coroutines.test)
+    }
     android {
         namespace = "me.him188.ani.datasource.dmhy"
     }

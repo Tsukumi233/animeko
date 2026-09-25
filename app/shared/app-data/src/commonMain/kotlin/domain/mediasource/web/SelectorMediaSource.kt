@@ -48,6 +48,12 @@ import me.him188.ani.datasources.api.paging.emptySizedSource
 import me.him188.ani.datasources.api.source.BrowseChannel
 import me.him188.ani.datasources.api.source.BrowseEpisode
 import me.him188.ani.datasources.api.source.BrowseSubject
+import me.him188.ani.datasources.api.source.MediaSourceBrowser
+import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
+import me.him188.ani.datasources.api.source.MediaSourceSearchScope
+import me.him188.ani.datasources.api.source.MediaResourceRef
+import me.him188.ani.datasources.api.source.MediaSourcePage
+import me.him188.ani.datasources.api.source.WebsiteMediaSourceBrowser
 import me.him188.ani.datasources.api.source.ConnectionStatus
 import me.him188.ani.datasources.api.source.FactoryId
 import me.him188.ani.datasources.api.source.HttpMediaSource
@@ -122,7 +128,16 @@ class SelectorMediaSource(
     override val kind: MediaSourceKind = MediaSourceKind.WEB,
     private val client: ScopedHttpClient,
     private val sessionManager: WebSessionManager,
-) : HttpMediaSource(), WebVideoMatcherProvider {
+) : HttpMediaSource(), WebVideoMatcherProvider, MediaSourceBrowser, MediaSourceResourceFactory {
+    private val manualBrowser by lazy { WebsiteMediaSourceBrowser(this) }
+    override val supportsRootBrowse: Boolean get() = manualBrowser.supportsRootBrowse
+    override val searchScope: MediaSourceSearchScope get() = manualBrowser.searchScope
+    override suspend fun browse(parent: MediaResourceRef?, pageToken: String?): MediaSourcePage =
+        manualBrowser.browse(parent, pageToken)
+    override suspend fun search(keyword: String, parent: MediaResourceRef?, pageToken: String?): MediaSourcePage =
+        manualBrowser.search(keyword, parent, pageToken)
+    override suspend fun createMedia(reference: MediaResourceRef, request: MediaFetchRequest): Media =
+        manualBrowser.createMedia(reference, request)
     companion object {
         val FactoryId = FactoryId("web-selector")
 

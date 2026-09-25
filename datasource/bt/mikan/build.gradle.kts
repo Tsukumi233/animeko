@@ -16,6 +16,10 @@ plugins {
 }
 
 kotlin {
+    sourceSets.commonTest.dependencies {
+        implementation(libs.ktor.client.mock)
+        implementation(libs.kotlinx.coroutines.test)
+    }
     sourceSets.commonMain {
         dependencies {
             api(projects.datasource.datasourceApi)

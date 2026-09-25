@@ -34,6 +34,17 @@ import kotlin.test.assertNull
  * 浏览把页面上的东西原样列出来, 自动匹配在其上解析集号, 两条路径对同一集给出相同的 mediaId.
  */
 class SelectorSiteFixtureTest {
+    @Test
+    fun `resource browser works when automatic matching is disabled`() = runTest {
+        val source = createTestSelectorMediaSource(config.copy(autoMatch = config.autoMatch.copy(enabled = false)), site)
+        val subject = source.search("葬送的芙莉莲").entries.first()
+        val channel = source.browse(subject.reference).entries.first()
+        val video = source.browse(channel.reference).entries.first()
+        val media = source.createMedia(video.reference, MediaFetchRequest("1", "1",
+            subjectNames = listOf("unrelated"), episodeSort = EpisodeSort(1), episodeName = ""))
+        assertEquals("https://www.fixture.invalid/watch/44/1/1.html", media.originalUrl)
+    }
+
     private val config = Json { ignoreUnknownKeys = true }
         .decodeFromString(SelectorSearchConfig.serializer(), resource("config.json"))
 

@@ -11,13 +11,14 @@ package me.him188.ani.datasources.dmhy.impl.protocol
 
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.URLProtocol
 import io.ktor.http.appendPathSegments
 import me.him188.ani.datasources.dmhy.DmhyTopic
 import me.him188.ani.datasources.dmhy.impl.cache.Cache
 import me.him188.ani.datasources.dmhy.impl.cache.CacheImpl
 import me.him188.ani.utils.ktor.ScopedHttpClient
-import me.him188.ani.utils.ktor.bodyAsDocument
+import org.jsoup.Jsoup
 
 class Network(
     private val client: ScopedHttpClient,
@@ -63,11 +64,12 @@ class Network(
                 parameter("team_id", teamId)
                 parameter("order", orderId)
             }
-            val document = resp.bodyAsDocument()
+            check(resp.status.value in 200..299) { "Dmhy search failed: HTTP ${resp.status.value}" }
+            val document = Jsoup.parse(resp.bodyAsText())
             val context = CacheImpl()
             return ListResponse(
                 context = context,
-                list = ListParser.parseList(context, document).orEmpty(),
+                list = requireNotNull(ListParser.parseList(context, document)) { "Dmhy response has no results table" },
                 currentPage = 0,
                 hasPreviousPage = false,
                 hasNextPage = false,
