@@ -83,6 +83,7 @@ internal fun ResourceScanRulesDialog(viewModel: ResourceLibraryViewModel) {
                 Text(listOf(sourceName, root.name).distinct().joinToString(" / "), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(Lang.resource_scan_scope_hint), style = MaterialTheme.typography.bodySmall)
                 if (root.matchingRuleJson != null) Text(stringResource(Lang.resource_scan_replace_rules), style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(16.dp))
                 OutlinedTextField(query, { viewModel.subjectQuery.value = it; showResults = true },
                     label = { Text(stringResource(Lang.resource_search_subject)) }, singleLine = true,
                     enabled = !state.saving, modifier = Modifier.fillMaxWidth())
