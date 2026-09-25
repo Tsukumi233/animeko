@@ -104,6 +104,7 @@ import me.him188.ani.app.ui.subject.details.sections.PagedEpisodesGrid
 import me.him188.ani.app.ui.subject.details.sections.ReviewsPreviewSection
 import me.him188.ani.app.ui.subject.details.sections.SectionHeader
 import me.him188.ani.app.ui.subject.details.sections.SectionHeaderRelationGraphButton
+import me.him188.ani.app.ui.subject.details.sections.SectionHeaderResourceButton
 import me.him188.ani.app.ui.subject.details.sections.SectionHeaderCacheButton
 import me.him188.ani.app.ui.subject.details.sections.StaffSection
 import me.him188.ani.app.ui.subject.details.sections.SubjectCollectionStatsRow
@@ -227,6 +228,7 @@ internal fun SubjectDetailsMultiColumnPage(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            SectionHeaderResourceButton(uiState.subjectId, showLabel = layoutParams.showCacheButtonLabel)
                             SectionHeaderCacheButton(onClickCache, showLabel = layoutParams.showCacheButtonLabel)
                             // 分页时分页控件替代集数文案; 不足一页时恢复 (定稿 1610:1003)
                             pager?.invoke() ?: ProvideContentColor(MaterialTheme.colorScheme.onSurfaceVariant) {

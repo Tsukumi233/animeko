@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -44,6 +45,8 @@ import me.him188.ani.app.data.models.subject.SubjectInfo
 import me.him188.ani.app.data.models.subject.Tag
 import me.him188.ani.app.ui.foundation.OutlinedTag
 import me.him188.ani.app.ui.lang.Lang
+import me.him188.ani.app.ui.lang.resource_associate_entry
+import me.him188.ani.app.navigation.LocalNavigator
 import me.him188.ani.app.ui.lang.subject_details_air_date
 import me.him188.ani.app.ui.lang.subject_details_air_date_format
 import me.him188.ani.app.ui.lang.subject_details_aliases
@@ -130,10 +133,27 @@ fun SectionHeaderRelationGraphButton(
 }
 
 /**
- * 选集区块标题行的 "↓ 缓存管理" 入口 (对齐 Figma `SectionHeader + Actions` 的缓存管理入口).
+ * 选集区块标题行的资源关联入口。
  *
  * [showLabel] 为 false 时只显示图标: 手机与窄双栏的 header 放不下文字标签 (会挤压标题).
  */
+@Composable
+fun SectionHeaderResourceButton(subjectId: Int, showLabel: Boolean = true) {
+    val navigator = LocalNavigator.current
+    val label = stringResource(Lang.resource_associate_entry)
+    if (showLabel) {
+        TextButton({ navigator.navigateResourceLibrary(subjectId) }) {
+            Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
+            Text(label, Modifier.padding(start = 4.dp))
+        }
+    } else {
+        IconButton({ navigator.navigateResourceLibrary(subjectId) }) {
+            Icon(Icons.Rounded.FolderOpen, label, tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/** 选集区块的下载管理入口；窄布局仅显示图标。 */
 @Composable
 fun SectionHeaderCacheButton(
     onClick: () -> Unit,

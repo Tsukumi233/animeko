@@ -38,9 +38,11 @@ fun ResourceLibraryScreen(
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
     windowInsets: WindowInsets = WindowInsets(0),
+    initialPage: Int = 0,
+    navigationIcon: @Composable () -> Unit = {},
     downloads: @Composable () -> Unit,
 ) {
-    var page by rememberSaveable { mutableIntStateOf(0) }
+    var page by rememberSaveable { mutableIntStateOf(initialPage) }
     var addMenu by remember { mutableStateOf(false) }
     var connection by remember { mutableStateOf<FileServiceProtocol?>(null) }
     var pikpakAccount by remember { mutableStateOf(false) }
@@ -53,9 +55,19 @@ fun ResourceLibraryScreen(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val selected by viewModel.selected.collectAsStateWithLifecycle()
+    val pendingPlayback by viewModel.pendingPlayback.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingPlayback) {
+        pendingPlayback?.let {
+            viewModel.pendingPlayback.value = null
+            onPlay(it.subjectId, it.episodeId, it.resourceId)
+        }
+    }
     Column(modifier.windowInsetsPadding(windowInsets).consumeWindowInsets(windowInsets)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(stringResource(Lang.resource_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 12.dp))
+            Row {
+                navigationIcon()
+                Text(stringResource(Lang.resource_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 12.dp))
+            }
             Row {
                 TextButton(onSettings) { Text(stringResource(Lang.resource_settings)) }
                 Box {
@@ -332,7 +344,7 @@ private fun ResourceAssociationDialog(viewModel: ResourceLibraryViewModel) {
                 }
             }
         },
-        confirmButton = { TextButton(viewModel::confirm, enabled = !state.loading && !state.saving && selected.isNotEmpty() && selected.all { it.identity in state.ignored || it.identity in state.targets }) { Text(stringResource(Lang.resource_confirm)) } },
+        confirmButton = { TextButton(viewModel::confirm, enabled = !state.loading && !state.saving && selected.isNotEmpty() && selected.all { it.identity in state.ignored || it.identity in state.targets }) { Text(stringResource(if (viewModel.willPlayOnConfirmation) Lang.resource_confirm_play else Lang.resource_confirm)) } },
         dismissButton = { TextButton(viewModel::dismissAssociation, enabled = !state.saving) { Text(stringResource(Lang.resource_cancel)) } },
     )
 }

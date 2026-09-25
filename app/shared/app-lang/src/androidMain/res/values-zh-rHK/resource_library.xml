@@ -49,4 +49,7 @@
     <string name="resource_ignore">忽略此檔案</string>
     <string name="resource_confirm">確認關聯</string>
     <string name="resource_pikpak_account_shared">與 PikPak 播放和下載共用同一帳號。密碼留空可繼續使用目前的登入。</string>
+    <string name="resource_associate_entry">關聯資源</string>
+    <string name="resource_choose_other_video">選擇其他影片</string>
+    <string name="resource_confirm_play">確認並播放</string>
 </resources>

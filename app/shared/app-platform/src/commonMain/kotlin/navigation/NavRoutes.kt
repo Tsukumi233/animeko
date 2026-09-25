@@ -107,6 +107,11 @@ sealed class NavRoutes : NavKey {
     ) : NavRoutes()
 
     @Serializable
+    data class ResourceLibrary(val subjectId: Int, val episodeId: Int? = null) : NavRoutes() {
+        init { require(subjectId > 0 && (episodeId == null || episodeId > 0)) }
+    }
+
+    @Serializable
     data class EpisodeDetail(
         val subjectId: Int,
         val episodeId: Int,

@@ -57,6 +57,7 @@ fun EpisodeVideoSideSheets.MediaSelectorSheet(
     onRefresh: () -> Unit,
     onRestartSource: (instanceId: String) -> Unit,
     modifier: Modifier = Modifier,
+    onChooseOtherVideo: (() -> Unit)? = null,
 ) {
     val selectMediaSourceText = stringResource(Lang.subject_episode_select_media_source)
     val closeSelectorText = stringResource(Lang.subject_episode_close_selector)
@@ -89,6 +90,7 @@ fun EpisodeVideoSideSheets.MediaSelectorSheet(
                 onDismissRequest()
             },
             singleLineFilter = true,
+            onChooseOtherVideo = onChooseOtherVideo,
         )
     }
 }

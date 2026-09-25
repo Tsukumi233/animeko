@@ -616,6 +616,7 @@ private fun EpisodeScreenTabletVeryWide(
                                     },
                                     onRefreshMediaSources = { vm.refreshFetch() },
                                     onRestartSource = { vm.restartSource(it) },
+                                    onChooseOtherVideo = { navigator.navigateResourceLibrary(vm.subjectId, page.episodePresentation.episodeId) },
                                     onSetDanmakuSourceEnabled = { providerId, enabled ->
                                         vm.setDanmakuSourceEnabled(providerId, enabled)
                                     },
@@ -790,6 +791,7 @@ private fun EpisodeScreenContentPhone(
                     },
                     onRefreshMediaSources = { vm.refreshFetch() },
                     onRestartSource = { vm.restartSource(it) },
+                                    onChooseOtherVideo = { navigator.navigateResourceLibrary(vm.subjectId, page.episodePresentation.episodeId) },
                     onSetDanmakuSourceEnabled = { providerId, enabled ->
                         vm.setDanmakuSourceEnabled(providerId, enabled)
                     },
@@ -1226,6 +1228,7 @@ private fun EpisodeVideo(
                             onDismissRequest = { goBack() },
                             onRefresh = { vm.refreshFetch() },
                             onRestartSource = { vm.restartSource(it) },
+                                    onChooseOtherVideo = { navigator.navigateResourceLibrary(vm.subjectId, page.episodePresentation.episodeId) },
                         )
                     }
                 },

@@ -49,4 +49,7 @@
     <string name="resource_ignore">Skip this file</string>
     <string name="resource_confirm">Confirm associations</string>
     <string name="resource_pikpak_account_shared">Uses the same account as PikPak playback and downloads. Leave the password empty to keep the current sign-in.</string>
+    <string name="resource_associate_entry">Associate resources</string>
+    <string name="resource_choose_other_video">Choose another video</string>
+    <string name="resource_confirm_play">Confirm and play</string>
 </resources>

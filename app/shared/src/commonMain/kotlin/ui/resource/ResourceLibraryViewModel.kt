@@ -71,6 +71,8 @@ data class ResourceAssociationUiState(
     val error: Throwable? = null,
 )
 
+data class ResourcePlaybackTarget(val subjectId: Int, val episodeId: Int, val resourceId: String)
+
 class ResourceLibraryViewModel(
     private val manager: MediaSourceManager,
     private val instances: MediaSourceInstanceRepository,
@@ -82,6 +84,8 @@ class ResourceLibraryViewModel(
     private val scanner: ResourceLibraryScanner,
     private val associate: AssociateResourcesUseCase,
     torrentBrowser: TorrentResourceBrowser,
+    private val initialSubjectId: Int? = null,
+    private val initialEpisodeId: Int? = null,
 ) : AbstractViewModel() {
     val sources = manager.allInstances.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val resources = library.resources.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
@@ -93,6 +97,10 @@ class ResourceLibraryViewModel(
     val busy = MutableStateFlow(false)
     val error = MutableStateFlow<Throwable?>(null)
     val subjectQuery = MutableStateFlow("")
+    val pendingPlayback = MutableStateFlow<ResourcePlaybackTarget?>(null)
+    val willPlayOnConfirmation: Boolean get() = initialSubjectId != null && initialEpisodeId != null && selected.value.count {
+        it.identity !in association.value.ignored && association.value.targets[it.identity] == ResourceEpisodeTarget(initialSubjectId, initialEpisodeId)
+    } == 1
     val pikpakConfig = settings.pikpakConfig.flow.stateIn(backgroundScope, SharingStarted.Eagerly, PikPakConfig.Default)
     val subjectResults = combine(subjectQuery, settings.uiSettings.flow) { keyword, ui ->
         SubjectSearchQuery(keyword, nsfw = if (ui.searchSettings.nsfwMode == NsfwMode.HIDE) false else null)
@@ -149,9 +157,18 @@ class ResourceLibraryViewModel(
                     }
                 }
                 if (explicitTarget != null) targets[inputs.single().identity] = explicitTarget
+                else if (initialSubjectId != null && initialEpisodeId != null && inputs.size == 1) {
+                    targets[inputs.single().identity] = ResourceEpisodeTarget(initialSubjectId, initialEpisodeId)
+                    ignored -= inputs.single().identity
+                }
                 association.update { if (it.requestId == initial.requestId) it.copy(targets = targets, ignored = ignored) else it }
-                val catalog = targets.values.map { it.subjectId }.distinct().map { subjects.librarySubjectCollectionFlow(it).first() }
-                association.update { if (it.requestId == initial.requestId) it.copy(subjects = catalog, loading = false) else it }
+                val catalog = (targets.values.map { it.subjectId } + listOfNotNull(initialSubjectId)).distinct()
+                    .map { subjects.librarySubjectCollectionFlow(it).first() }
+                val options = catalog.flatMap { subject -> subject.episodes.map { ep ->
+                    ResourceEpisodeOption(ResourceEpisodeTarget(subject.subjectId, ep.episodeId), ep.episodeInfo.sort)
+                } }
+                val suggestions = preview.build(inputs, options).mapNotNull { row -> row.targets.singleOrNull()?.let { row.input.identity to it } }.toMap()
+                association.update { if (it.requestId == initial.requestId) it.copy(subjects = catalog, targets = suggestions + targets, loading = false) else it }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 association.update { if (it.requestId == initial.requestId) it.copy(loading = false, error = e) else it }
@@ -214,6 +231,14 @@ class ResourceLibraryViewModel(
                     val target = state.targets.getValue(input.identity)
                     ResourceEpisodeSelection(input.entry, target.subjectId, target.episodeId, input.selectedFilePath)
                 }, ignored = ignored)
+                val playbackTarget = if (initialSubjectId != null && initialEpisodeId != null) ResourceEpisodeTarget(initialSubjectId, initialEpisodeId) else null
+                inputs.singleOrNull { playbackTarget != null && state.targets[it.identity] == playbackTarget }?.let { input ->
+                    val reference = input.entry.reference
+                    val resource = library.dao.findResource(reference.sourceId, reference.resourceId)
+                    if (resource != null && initialSubjectId != null && initialEpisodeId != null) {
+                        pendingPlayback.value = ResourcePlaybackTarget(initialSubjectId, initialEpisodeId, resource.id)
+                    }
+                }
                 association.value = ResourceAssociationUiState()
                 selected.value = emptyList()
             } catch (e: CancellationException) { throw e }
@@ -316,6 +341,6 @@ class ResourceLibraryViewModel(
     }
 }
 
-fun createResourceLibraryViewModel(): ResourceLibraryViewModel = KoinPlatform.getKoin().run {
-    ResourceLibraryViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get())
+fun createResourceLibraryViewModel(subjectId: Int? = null, episodeId: Int? = null): ResourceLibraryViewModel = KoinPlatform.getKoin().run {
+    ResourceLibraryViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), subjectId, episodeId)
 }

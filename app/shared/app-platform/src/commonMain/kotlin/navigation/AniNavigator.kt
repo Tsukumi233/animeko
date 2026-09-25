@@ -87,6 +87,10 @@ interface AniNavigator {
         navigate(NavRoutes.SubjectCaches(subjectId))
     }
 
+    fun navigateResourceLibrary(subjectId: Int, episodeId: Int? = null) {
+        navigate(NavRoutes.ResourceLibrary(subjectId, episodeId))
+    }
+
     fun navigatePersonDetails(personId: Int) {
         navigate(NavRoutes.PersonDetail(personId))
     }

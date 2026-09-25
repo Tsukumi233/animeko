@@ -4,6 +4,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -14,6 +16,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Dp
@@ -21,6 +24,11 @@ import androidx.compose.ui.unit.dp
 import me.him188.ani.app.domain.mediasource.library.ResourceFileIdentity
 import me.him188.ani.app.domain.mediasource.library.ResourcePreviewInput
 import me.him188.ani.app.ui.foundation.ProvideCompositionLocalsForPreview
+import me.him188.ani.app.navigation.AniNavigator
+import me.him188.ani.app.navigation.LocalNavigator
+import me.him188.ani.app.navigation.MainScreenPage
+import me.him188.ani.app.navigation.NavRoutes
+import me.him188.ani.app.ui.subject.details.sections.SectionHeaderResourceButton
 import me.him188.ani.app.ui.framework.AniComposeUiTest
 import me.him188.ani.app.ui.framework.assertScreenshot
 import me.him188.ani.app.ui.framework.runAniComposeUiTest
@@ -44,6 +52,19 @@ class ResourceBrowserScreenTest {
     private val originalLocale = Locale.getDefault()
     @BeforeTest fun setLocale() = Locale.setDefault(Locale.ENGLISH)
     @AfterTest fun restoreLocale() = Locale.setDefault(originalLocale)
+
+    @Test fun `compact subject resource button opens browsing with the correct subject`() = runAniComposeUiTest {
+        val navigator = AniNavigator().apply { setBackStack(mutableStateListOf(NavRoutes.Main(MainScreenPage.Exploration))) }
+        setContent {
+            ProvideCompositionLocalsForPreview {
+                CompositionLocalProvider(LocalNavigator provides navigator) {
+                    Surface { SectionHeaderResourceButton(123, showLabel = false) }
+                }
+            }
+        }
+        onNodeWithContentDescription("Associate resources").performClick()
+        runOnIdle { assertEquals(NavRoutes.ResourceLibrary(123), navigator.backStack.last()) }
+    }
 
     private fun input(name: String, kind: MediaSourceEntryKind) = ResourcePreviewInput(
         MediaSourceEntry(MediaResourceRef("disk", name), name, kind),

@@ -57,6 +57,9 @@ import me.him188.ani.app.ui.adaptive.navigation.AniNavigationSuiteDefaults
 import me.him188.ani.app.ui.bangumi.merge.BangumiMergeScreen
 import me.him188.ani.app.ui.bangumi.merge.BangumiMergeViewModel
 import me.him188.ani.app.ui.download.DownloadManagementScreen
+import me.him188.ani.app.ui.resource.ResourceLibraryScreen
+import me.him188.ani.app.ui.resource.createResourceLibraryViewModel
+import me.him188.ani.app.navigation.SettingsTab
 import me.him188.ani.app.ui.download.createDownloadManagementViewModel
 import me.him188.ani.app.ui.download.createSubjectDownloadsViewModel
 import me.him188.ani.app.ui.download.details.MediaCacheDetailsPageViewModel
@@ -362,6 +365,28 @@ private fun AniAppContentImpl(
                         }
                     },
                 )
+            }
+            entry<NavRoutes.ResourceLibrary> { route ->
+                val selfInfo by remember { SelfInfoStateProducer() }.flow.collectAsState(null)
+                ResourceLibraryScreen(
+                    viewModel(key = route.toString()) { createResourceLibraryViewModel(route.subjectId, route.episodeId) },
+                    onPlay = { subjectId, episodeId, resourceId ->
+                        aniNavigator.navigateEpisodeDetails(subjectId, episodeId, libraryResourceId = resourceId)
+                    },
+                    onSettings = { aniNavigator.navigateSettings(SettingsTab.MEDIA_SOURCE) },
+                    modifier = Modifier.fillMaxSize(),
+                    windowInsets = windowInsets,
+                    initialPage = 1,
+                    navigationIcon = { BackNavigationIconButton({ aniNavigator.popBackStack() }) },
+                ) {
+                    DownloadManagementScreen(
+                        viewModel { createDownloadManagementViewModel() }, selfInfo = selfInfo,
+                        onPlay = { aniNavigator.navigateEpisodeDetails(it.subjectId, it.episodeId) },
+                        onNavigateCacheDetail = { aniNavigator.navigateCacheDetails(it) },
+                        onClickLogin = { aniNavigator.navigateLogin() },
+                        modifier = Modifier.fillMaxSize(), navigationIcon = {}, windowInsets = WindowInsets(0),
+                    )
+                }
             }
             entry<NavRoutes.EpisodeDetail> { route ->
                 val context = LocalContext.current

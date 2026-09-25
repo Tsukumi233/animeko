@@ -41,6 +41,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -84,6 +85,7 @@ import me.him188.ani.app.ui.foundation.animation.LocalAniMotionScheme
 import me.him188.ani.app.ui.foundation.icons.EditSquare
 import me.him188.ani.app.ui.foundation.ifThen
 import me.him188.ani.app.ui.lang.Lang
+import me.him188.ani.app.ui.lang.resource_choose_other_video
 import me.him188.ani.app.ui.lang.media_selector_view_detailed_mode
 import me.him188.ani.app.ui.lang.media_selector_view_filtered_count
 import me.him188.ani.app.ui.lang.media_selector_view_show_excluded
@@ -122,12 +124,16 @@ fun MediaSelectorView(
     onClickItem: (Media) -> Unit = { state.select(it) },
     singleLineFilter: Boolean = false,
     scrollable: Boolean = true,
+    onChooseOtherVideo: (() -> Unit)? = null,
 ) {
     val bringIntoViewRequesters = remember { mutableStateMapOf<Media, BringIntoViewRequester>() }
     val presentation by state.presentationFlow.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     Column(modifier) {
+        if (onChooseOtherVideo != null) {
+            TextButton(onChooseOtherVideo, Modifier.fillMaxWidth()) { Text(stringResource(Lang.resource_choose_other_video)) }
+        }
         val lazyListState = rememberLazyListState()
         var showExcluded by rememberSaveable { mutableStateOf(false) }
 

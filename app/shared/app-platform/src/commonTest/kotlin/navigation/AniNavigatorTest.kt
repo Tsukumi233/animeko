@@ -25,6 +25,19 @@ class AniNavigatorTest {
     private val main = NavRoutes.Main(MainScreenPage.Exploration)
 
     @Test
+    fun `resource browsing retains current episode context and replaces it on confirmed playback`() {
+        val episode = NavRoutes.EpisodeDetail(1, 11)
+        val navigator = navigatorWith(main, episode)
+        navigator.navigateResourceLibrary(1, 11)
+        assertEquals(listOf(main, episode, NavRoutes.ResourceLibrary(1, 11)), navigator.backStack)
+        navigator.popBackStack()
+        assertEquals(listOf(main, episode), navigator.backStack)
+        navigator.navigateResourceLibrary(1, 11)
+        navigator.navigateEpisodeDetails(1, 11, libraryResourceId = "confirmed")
+        assertEquals(listOf(main, NavRoutes.EpisodeDetail(1, 11, "confirmed")), navigator.backStack)
+    }
+
+    @Test
     fun `explicit library playback replaces same episode route independent of resource identity`() {
         val navigator = navigatorWith(main, NavRoutes.EpisodeDetail(1, 11, "old"), NavRoutes.Settings())
         navigator.navigateEpisodeDetails(1, 11, libraryResourceId = "chosen")

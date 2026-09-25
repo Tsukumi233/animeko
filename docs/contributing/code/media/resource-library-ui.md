@@ -2,6 +2,8 @@
 
 主导航的资源页由 `ResourceLibraryScreen` 提供，包含我的资源、来源、下载三个页签。下载页使用 `DownloadManagementScreen`，来源设置使用现有数据源设置入口。
 
+番剧选集区域的关联入口通过 `NavRoutes.ResourceLibrary` 携带当前条目。播放器选源面板的“选择其他视频”还携带当前播放剧集的身份，直接打开来源页。确认窗口预载该条目的完整剧集；当前集选择单文件时预填对应关系，显示“确认并播放”。成功保存后以资源 ID 导航到该集，返回和取消保留已有播放页。剧集身份来自当前页面状态，不使用可编辑的搜索请求提示字段。
+
 `ResourceLibraryViewModel` 协调本地文件选择、来源配置、资源索引与关联确认。Android 文件选择保留 document/tree 的只读授权；Desktop 文件选择保存文件 URI。WebDAV 和 SMB 的凭证单独保存，PikPak 使用已有账号配置。
 
 `ResourceBrowserController` 负责来源浏览、分页与搜索。搜索范围来自 `MediaSourceBrowser.searchScope`；只支持搜索的来源显示关键字提示。BT 发布通过 `TorrentResourceBrowser` 展开完整文件路径，非视频文件不能关联。切换来源、目录或搜索请求时取消旧任务，并用请求标识阻止迟到结果覆盖页面。

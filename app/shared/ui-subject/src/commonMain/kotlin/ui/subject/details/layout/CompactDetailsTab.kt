@@ -50,6 +50,7 @@ import me.him188.ani.app.ui.subject.details.sections.CharactersSection
 import me.him188.ani.app.ui.subject.details.sections.EpisodesRow
 import me.him188.ani.app.ui.subject.details.sections.SectionHeader
 import me.him188.ani.app.ui.subject.details.sections.SectionHeaderActionButton
+import me.him188.ani.app.ui.subject.details.sections.SectionHeaderResourceButton
 import me.him188.ani.app.ui.subject.details.sections.SectionHeaderCacheButton
 import me.him188.ani.app.ui.subject.details.sections.SectionHeaderRelationGraphButton
 import me.him188.ani.app.ui.subject.details.sections.StaffSection
@@ -113,6 +114,7 @@ internal fun CompactDetailsTabContent(
                         stringResource(Lang.subject_details_episodes),
                         horizontalPaddingModifier,
                     ) {
+                        SectionHeaderResourceButton(uiState.subjectId, showLabel = false)
                         SectionHeaderCacheButton(onClickCache, showLabel = false)
                         SectionHeaderActionButton(onShowEpisodeList) {
                             AiringLabel(

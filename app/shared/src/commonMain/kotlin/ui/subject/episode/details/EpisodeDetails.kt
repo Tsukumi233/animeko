@@ -219,6 +219,7 @@ fun EpisodeDetails(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
     danmakuListState: DanmakuListState? = null,
+    onChooseOtherVideo: (() -> Unit)? = null,
 ) {
     var showSubjectDetails by rememberSaveable {
         mutableStateOf(false)
@@ -413,6 +414,7 @@ fun EpisodeDetails(
                                     showMediaSelector = false
                                 },
                                 scrollable = true,
+                                onChooseOtherVideo = onChooseOtherVideo,
                             )
                         }
                     }
@@ -447,6 +449,7 @@ fun EpisodeDetails(
                                 showMediaSelector = false
                             },
                             scrollable = sheetState.targetValue == SheetValue.Expanded,
+                            onChooseOtherVideo = onChooseOtherVideo,
                         )
                     }
                 }
