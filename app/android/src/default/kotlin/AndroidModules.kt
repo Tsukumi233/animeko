@@ -63,9 +63,10 @@ import me.him188.ani.app.tools.update.AndroidUpdateInstaller
 import me.him188.ani.app.tools.update.UpdateInstaller
 import me.him188.ani.app.ui.exprovider.ExternalContentProviderFactory
 import me.him188.ani.torrent.offline.OfflineDownloadEngine
-import me.him188.ani.torrent.pikpak.PikPakCredentials
+import me.him188.ani.app.domain.mediasource.pikpak.PikPakAccountServices
+import me.him188.ani.torrent.pikpak.PikPakAccountProvider
+import me.him188.ani.torrent.pikpak.PikPakDriveAccess
 import me.him188.ani.torrent.pikpak.PikPakOfflineDownloadEngine
-import me.him188.ani.torrent.pikpak.PikPakSessionStoreAdapter
 import me.him188.ani.utils.httpdownloader.HttpDownloader
 import me.him188.ani.utils.io.absolutePath
 import me.him188.ani.utils.io.deleteRecursively
@@ -169,41 +170,18 @@ fun getAndroidModules(
         )
     }
 
+    single { PikPakAccountServices(get(), get<HttpClientProvider>().get(ScopedHttpClientUserAgent.ANI), coroutineScope) }
+    single<PikPakAccountProvider> { get<PikPakAccountServices>().accountProvider }
+    single<PikPakDriveAccess> { get<PikPakAccountServices>().driveAccess }
     single<OfflineDownloadEngine> {
-        val settings = get<SettingsRepository>()
-        val configState = settings.pikpakConfig.flow
-            .stateIn(coroutineScope, SharingStarted.Eagerly, initialValue = PikPakConfig.Default)
-        val credentialsFlow = configState
-            .map { cfg ->
-                if (cfg.enabled && cfg.username.isNotEmpty() &&
-                    (cfg.password.isNotEmpty() || cfg.refreshToken.isNotEmpty())
-                ) {
-                    PikPakCredentials(cfg.username, cfg.password)
-                } else null
-            }
-            .stateIn(coroutineScope, SharingStarted.Eagerly, initialValue = null)
-        val sessionStore = PikPakSessionStoreAdapter(
-            readRefreshToken = { configState.value.refreshToken },
-            writeRefreshToken = { rt ->
-                settings.pikpakConfig.update { copy(refreshToken = rt) }
-            },
-            // PikPakConfig.password stays on disk obscured (AES-CTR with a
-            // hardcoded key, the same approach as `rclone obscure`; see
-            // ObscuredStringSerializer). We need to keep it because a
-            // server-side revoke of the refresh token would otherwise leave
-            // the engine with no recovery path — Test and playback would
-            // silently fail until the user re-typed the password.
-            // PikPakAcceleratorGroup never echoes the stored value back to
-            // the password field, so the obscured copy is what the eyedrop
-            // attacker would see.
-            onSessionSaved = {},
-        )
+        val account = get<PikPakAccountServices>()
         PikPakOfflineDownloadEngine(
             scopedHttpClient = get<HttpClientProvider>().get(ScopedHttpClientUserAgent.ANI),
-            credentials = credentialsFlow,
+            credentials = account.accelerationCredentials,
             scope = coroutineScope,
-            sessionStore = sessionStore,
-            slotQueueLength = { configState.value.slotQueueLength },
+            sessionStore = account.sessionStore,
+            slotQueueLength = { account.config.value.slotQueueLength },
+            accountProvider = account.accountProvider,
         )
     }
     factory<MediaResolver> {
