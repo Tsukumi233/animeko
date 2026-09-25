@@ -17,4 +17,5 @@
     <string name="resource_scan_mapping_preview">檔案集數 → 集數</string>
     <string name="resource_scan_duplicate_sort">集數重複，無法唯一配對；請取消衝突集數或切換編號類型。</string>
     <string name="resource_scan_confirm_scope">我確認此資料夾、標題範圍及集數對應關係，允許後續完整掃描使用此規則。</string>
+    <string name="resource_scan_replace_rules">儲存會以下方對應表取代此資料夾已有的規則。請重新核對條目、標題範圍與集數對應關係。</string>
 </resources>

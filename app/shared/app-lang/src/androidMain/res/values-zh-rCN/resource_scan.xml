@@ -17,4 +17,5 @@
     <string name="resource_scan_mapping_preview">文件集号 → 剧集</string>
     <string name="resource_scan_duplicate_sort">集号重复，无法唯一匹配；请取消冲突剧集或切换集号类型。</string>
     <string name="resource_scan_confirm_scope">我确认此目录、标题范围及剧集对应关系，允许后续完整扫描使用此规则。</string>
+    <string name="resource_scan_replace_rules">保存会用下方对应表替换此目录已有的规则。请重新核对条目、标题范围与剧集对应关系。</string>
 </resources>

@@ -87,6 +87,8 @@ class ResourceScanRuleControllerTest {
         controller.open(root())
         controller.chooseSubject(1)
         runCurrent()
+        controller.confirmScope(true)
+        assertFalse(controller.state.value.scopeConfirmed)
         controller.open(root("another"))
         release.complete(Unit)
         runCurrent()

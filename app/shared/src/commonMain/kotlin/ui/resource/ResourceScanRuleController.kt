@@ -84,7 +84,7 @@ class ResourceScanRuleController(
     fun edit(transform: (ResourceScanRuleState) -> ResourceScanRuleState) {
         if (!state.value.saving && !state.value.loading) state.update { transform(it).copy(scopeConfirmed = false, error = null) }
     }
-    fun confirmScope(confirmed: Boolean) { state.update { if (it.saving) it else it.copy(scopeConfirmed = confirmed) } }
+    fun confirmScope(confirmed: Boolean) { state.update { if (it.saving || it.loading) it else it.copy(scopeConfirmed = confirmed) } }
     fun chooseSubject(id: Int) = loadSubject(id, null)
     private fun loadSubject(id: Int, savedRule: ConfirmedResourceMatchingRule?) {
         if (state.value.saving) return

@@ -17,4 +17,5 @@
     <string name="resource_scan_mapping_preview">Filename number → episode</string>
     <string name="resource_scan_duplicate_sort">Repeated numbers cannot match uniquely. Deselect conflicting episodes or change numbering.</string>
     <string name="resource_scan_confirm_scope">I confirm this folder, title scope and episode mapping. Apply to future complete scans.</string>
+    <string name="resource_scan_replace_rules">Saving replaces this folder’s existing rules with the mapping shown below. Review the subject, titles and episode mapping before confirming.</string>
 </resources>
