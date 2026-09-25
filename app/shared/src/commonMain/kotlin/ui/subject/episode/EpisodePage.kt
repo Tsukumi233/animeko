@@ -87,6 +87,7 @@ import me.him188.ani.app.data.models.preference.DarkMode
 import me.him188.ani.app.data.models.preference.VideoScaffoldConfig
 import me.him188.ani.app.domain.comment.CommentContext
 import me.him188.ani.app.navigation.LocalNavigator
+import me.him188.ani.utils.io.absolutePath
 import me.him188.ani.app.platform.LocalContext
 import me.him188.ani.app.platform.features.StreamType
 import me.him188.ani.app.platform.features.getComponentAccessors
@@ -293,8 +294,10 @@ private fun EpisodeScreenContent(
 
     VideoNotifEffect(vm)
 
-    // 将本地视频文件拖入窗口, 即在当前剧集播放该文件
-    WindowDropHandlerEffect(rememberEpisodeVideoDropHandler { vm.playDroppedFile(it) })
+    val resourceNavigator = LocalNavigator.current
+    WindowDropHandlerEffect(rememberEpisodeVideoDropHandler {
+        resourceNavigator.navigateResourceLibrary(vm.subjectId, vm.currentEpisodeId, initialFiles = listOf(it.absolutePath))
+    })
 
     DarkStatusBarAppearance()
 

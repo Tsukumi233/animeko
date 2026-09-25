@@ -47,6 +47,7 @@ fun ResourceLibraryScreen(
     var connection by remember { mutableStateOf<FileServiceProtocol?>(null) }
     var pikpakAccount by remember { mutableStateOf(false) }
     val localName = stringResource(Lang.resource_local_files)
+    LaunchedEffect(viewModel) { viewModel.importInitialFiles(localName) }
     val pickers = rememberResourceFilePickers(
         onFiles = { viewModel.addLocal(it, false, localName) },
         onDirectory = { viewModel.addLocal(listOf(it), true, localName) },

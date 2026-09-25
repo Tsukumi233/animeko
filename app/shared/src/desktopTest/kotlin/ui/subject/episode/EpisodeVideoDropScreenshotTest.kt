@@ -131,14 +131,14 @@ class EpisodeVideoDropScreenshotTest {
     fun dropVideoDark() = captureDrop(
         "episode-drop-video-dark", DarkMode.DARK,
         dragged = "[Sakurato] Sousou no Frieren [01][AVC-8bit 1080p AAC][CHS].mp4",
-        expectedText = "松手以播放",
+        expectedText = "松手以关联资源",
     )
 
     @Test
     fun dropVideoLight() = captureDrop(
         "episode-drop-video-light", DarkMode.LIGHT,
         dragged = "[Sakurato] Sousou no Frieren [01][AVC-8bit 1080p AAC][CHS].mp4",
-        expectedText = "松手以播放",
+        expectedText = "松手以关联资源",
     )
 
     @Test

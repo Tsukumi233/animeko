@@ -148,9 +148,9 @@
     <string name="settings_debug_dev_builds_size_unknown">大小未知</string>
     <string name="window_drop_unsupported_title">不支援的檔案</string>
     <string name="window_drop_unsupported_description">僅支援%1$s，鬆手後不會有任何操作</string>
-    <string name="episode_drop_video_title">鬆手以播放</string>
+    <string name="episode_drop_video_title">鬆手以關聯資源</string>
     <string name="episode_drop_video_unknown_name">影片檔案</string>
-    <string name="episode_drop_video_description">立即在目前劇集播放此檔案，僅本次播放有效</string>
+    <string name="episode_drop_video_description">確認此檔案與目前劇集的對應關係，儲存至資源庫後播放</string>
     <string name="episode_drop_video_supported_hint">影片檔案</string>
     <string name="settings_help_qq">QQ</string>
     <string name="settings_help_telegram">Telegram</string>

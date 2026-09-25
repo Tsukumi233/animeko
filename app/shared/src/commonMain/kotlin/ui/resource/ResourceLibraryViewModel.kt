@@ -86,6 +86,7 @@ class ResourceLibraryViewModel(
     torrentBrowser: TorrentResourceBrowser,
     private val initialSubjectId: Int? = null,
     private val initialEpisodeId: Int? = null,
+    private val initialFiles: List<String> = emptyList(),
 ) : AbstractViewModel() {
     val sources = manager.allInstances.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val resources = library.resources.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
@@ -110,9 +111,16 @@ class ResourceLibraryViewModel(
     private val sourceWrites = Mutex()
     private val preview = ResourceAssociationPreviewBuilder()
     private var subjectLoad: Job? = null
+    private var initialFilesHandled = false
     private val subjectMetadata = mutableMapOf<Int, StateFlow<SubjectCollectionInfo?>>()
 
     fun subjectDisplayInfo(subjectId: Int) = subjects.getSubjectDisplayInfoOffline(subjectId)
+
+    fun importInitialFiles(name: String) {
+        if (initialFilesHandled || initialFiles.isEmpty()) return
+        initialFilesHandled = true
+        addLocal(initialFiles, directory = false, name = name)
+    }
 
     fun subjectCollection(subjectId: Int): StateFlow<SubjectCollectionInfo?> = subjectMetadata.getOrPut(subjectId) {
         subjects.librarySubjectCollectionFlow(subjectId).stateIn(backgroundScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -341,6 +349,6 @@ class ResourceLibraryViewModel(
     }
 }
 
-fun createResourceLibraryViewModel(subjectId: Int? = null, episodeId: Int? = null): ResourceLibraryViewModel = KoinPlatform.getKoin().run {
-    ResourceLibraryViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), subjectId, episodeId)
+fun createResourceLibraryViewModel(subjectId: Int? = null, episodeId: Int? = null, initialFiles: List<String> = emptyList()): ResourceLibraryViewModel = KoinPlatform.getKoin().run {
+    ResourceLibraryViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), subjectId, episodeId, initialFiles)
 }

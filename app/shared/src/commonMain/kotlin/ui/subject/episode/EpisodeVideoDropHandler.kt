@@ -30,15 +30,15 @@ import me.him188.ani.utils.io.name
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * 播放页的窗口拖放处理者: 将本地视频文件拖入窗口, 即在当前剧集播放该文件, 不经过数据源选择.
+ * 播放页的窗口拖放处理者：选择本地视频并交给当前剧集的资源关联确认入口。
  *
  * 只接管含有视频文件的文件列表, 以及拖动阶段读不到内容的拖放 (松手后再判断); 其他内容交给后续处理者.
- * 拖入多个文件时播放其中首个视频文件.
+ * 拖入多个文件时选择其中首个视频文件。
  *
  * @see EpisodeViewModel.playDroppedFile
  */
 class EpisodeVideoDropHandler(
-    private val onPlay: (SystemPath) -> Unit,
+    private val onSelect: (SystemPath) -> Unit,
 ) : WindowDropHandler {
     override fun onDragStarted(content: DragAndDropContent?): WindowDropPreview? {
         val file = when (content) {
@@ -52,7 +52,7 @@ class EpisodeVideoDropHandler(
     override fun onDrop(content: DragAndDropContent): Boolean {
         if (content !is DragAndDropContent.FileList) return false
         val file = DroppedFileMedia.findVideoFile(content.files) ?: return false
-        onPlay(file)
+        onSelect(file)
         return true
     }
 
@@ -61,9 +61,9 @@ class EpisodeVideoDropHandler(
 }
 
 @Composable
-fun rememberEpisodeVideoDropHandler(onPlay: (SystemPath) -> Unit): EpisodeVideoDropHandler {
-    val onPlayUpdated by rememberUpdatedState(onPlay)
-    return remember { EpisodeVideoDropHandler { onPlayUpdated(it) } }
+fun rememberEpisodeVideoDropHandler(onSelect: (SystemPath) -> Unit): EpisodeVideoDropHandler {
+    val onSelectUpdated by rememberUpdatedState(onSelect)
+    return remember { EpisodeVideoDropHandler { onSelectUpdated(it) } }
 }
 
 /**

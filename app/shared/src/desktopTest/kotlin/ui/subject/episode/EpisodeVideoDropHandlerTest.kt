@@ -21,8 +21,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EpisodeVideoDropHandlerTest {
-    private val played = mutableListOf<SystemPath>()
-    private val handler = EpisodeVideoDropHandler { played += it }
+    private val selected = mutableListOf<SystemPath>()
+    private val handler = EpisodeVideoDropHandler { selected += it }
 
     private fun files(vararg names: String) = DragAndDropContent.FileList(names.map { Path("/videos/$it") })
 
@@ -38,9 +38,9 @@ class EpisodeVideoDropHandlerTest {
     }
 
     @Test
-    fun `plays the first video file on drop`() {
+    fun `selects the first video file on drop`() {
         assertTrue(handler.onDrop(files("episode-01.ass", "episode-01.mkv", "episode-02.mkv")))
-        assertEquals(listOf(Path("/videos/episode-01.mkv").inSystem), played)
+        assertEquals(listOf(Path("/videos/episode-01.mkv").inSystem), selected)
     }
 
     @Test
@@ -48,6 +48,6 @@ class EpisodeVideoDropHandlerTest {
         assertFalse(handler.onDrop(files("Ani-4.12.0.dmg")))
         assertFalse(handler.onDrop(DragAndDropContent.PlainText("/videos/episode-01.mkv")))
         assertFalse(handler.onDrop(DragAndDropContent.Unsupported))
-        assertTrue(played.isEmpty())
+        assertTrue(selected.isEmpty())
     }
 }

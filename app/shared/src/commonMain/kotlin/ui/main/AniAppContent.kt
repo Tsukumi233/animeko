@@ -369,7 +369,7 @@ private fun AniAppContentImpl(
             entry<NavRoutes.ResourceLibrary> { route ->
                 val selfInfo by remember { SelfInfoStateProducer() }.flow.collectAsState(null)
                 ResourceLibraryScreen(
-                    viewModel(key = route.toString()) { createResourceLibraryViewModel(route.subjectId, route.episodeId) },
+                    viewModel(key = route.toString()) { createResourceLibraryViewModel(route.subjectId, route.episodeId, route.initialFiles) },
                     onPlay = { subjectId, episodeId, resourceId ->
                         aniNavigator.navigateEpisodeDetails(subjectId, episodeId, libraryResourceId = resourceId)
                     },

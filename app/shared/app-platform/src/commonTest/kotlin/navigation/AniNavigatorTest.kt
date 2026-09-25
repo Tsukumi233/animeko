@@ -25,6 +25,14 @@ class AniNavigatorTest {
     private val main = NavRoutes.Main(MainScreenPage.Exploration)
 
     @Test
+    fun `dropped file paths retain unicode spaces and current episode context`() {
+        val navigator = navigatorWith(main, NavRoutes.EpisodeDetail(1, 12))
+        val files = listOf("C:\\動画\\Season 2\\01 + SP.mkv")
+        navigator.navigateResourceLibrary(1, 12, initialFiles = files)
+        assertEquals(NavRoutes.ResourceLibrary(1, 12, files), navigator.backStack.last())
+    }
+
+    @Test
     fun `resource browsing retains current episode context and replaces it on confirmed playback`() {
         val episode = NavRoutes.EpisodeDetail(1, 11)
         val navigator = navigatorWith(main, episode)

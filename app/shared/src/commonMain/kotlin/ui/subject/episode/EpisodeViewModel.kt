@@ -198,7 +198,6 @@ import me.him188.ani.utils.coroutines.flows.flowOfNull
 import me.him188.ani.utils.coroutines.flows.restartable
 import me.him188.ani.utils.coroutines.flows.shareTransparentlyIn
 import me.him188.ani.utils.coroutines.sampleWithInitial
-import me.him188.ani.utils.io.SystemPath
 import me.him188.ani.utils.logging.info
 import me.him188.ani.utils.logging.warn
 import me.him188.ani.utils.platform.annotations.TestOnly
@@ -1166,26 +1165,8 @@ open class EpisodeViewModel(
         }
     }
 
-    /**
-     * 在当前剧集播放用户拖入的本地视频文件 [file], 不经过数据源选择.
-     *
-     * 只对当前剧集的本次播放有效: 不更新数据源偏好, 之后仍可在数据源选择器中换回其他资源;
-     * 切换剧集或重新进入播放页后照常自动选择数据源. 若剧集信息加载完成前切换了剧集, 则放弃播放.
-     */
-    fun playDroppedFile(file: SystemPath) {
-        launchInBackground {
-            val session = fetchPlayState.episodeSessionFlow.value
-            val mediaSelector = fetchPlayState.episodeSessionFlow
-                .mapLatest { current ->
-                    if (current !== session) return@mapLatest null
-                    current.fetchSelectFlow.filterNotNull().first().mediaSelector
-                }
-                .first()
-                ?: return@launchInBackground
-            logger.info { "Playing dropped file: $file" }
-            mediaSelector.selectTemporarily(DroppedFileMedia.create(file))
-        }
-    }
+    @OptIn(UnsafeEpisodeSessionApi::class)
+    val currentEpisodeId: Int get() = fetchPlayState.episodeSessionFlow.value.episodeId
 
     fun onUIReady() {
         fetchPlayState.onUIReady()
