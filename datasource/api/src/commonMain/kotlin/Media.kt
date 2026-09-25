@@ -312,7 +312,6 @@ data class MediaProperties @SerializationOnly constructor(
     val subtitleKind: SubtitleKind? = null, // #615
     @Suppress("unused")
     @Transient private val _primaryConstructorMarker: Unit = Unit,
-    override val association: MediaAssociation? = null,
 ) {
     @OptIn(SerializationOnly::class)
     constructor(
