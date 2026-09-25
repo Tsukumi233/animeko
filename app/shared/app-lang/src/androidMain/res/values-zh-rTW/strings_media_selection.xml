@@ -68,4 +68,7 @@
     <string name="settings_media_auto_cache_partial">當前設置: 自動緩存觀看進度之後的 %d 話, </string>
     <string name="settings_media_auto_cache_space">預計佔用空間 %s/番劇</string>
     <string name="settings_media_sort_tip">長按排序，優先選擇順序較高的項目。\n選中數量越少，查詢越快。</string>
+    <string name="settings_media_source_local_file">本機檔案</string>
+    <string name="settings_media_source_file_service">網路檔案</string>
+    <string name="settings_media_source_cloud_drive">雲端硬碟</string>
 </resources>

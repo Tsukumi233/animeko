@@ -277,6 +277,9 @@ internal fun SettingsScope.MediaSelectionGroup(
                             when (it) {
                                 MediaSourceKind.WEB -> stringResource(Lang.settings_media_source_web)
                                 MediaSourceKind.BitTorrent -> stringResource(Lang.settings_media_source_bt)
+                                MediaSourceKind.LocalFile -> stringResource(Lang.settings_media_source_local_file)
+                                MediaSourceKind.FileService -> stringResource(Lang.settings_media_source_file_service)
+                                MediaSourceKind.CloudDrive -> stringResource(Lang.settings_media_source_cloud_drive)
                                 null -> stringResource(Lang.settings_media_source_no_preference)
                                 MediaSourceKind.LocalCache -> "" // not possible
                             },

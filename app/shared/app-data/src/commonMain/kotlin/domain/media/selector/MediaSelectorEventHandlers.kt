@@ -29,7 +29,7 @@ class MediaSelectorEventHandlers(
     }
 
     /**
-     * 变更用户偏好的 web 源
+     * 变更当前番剧偏好的来源
      */
     suspend fun preferWebMediaSource(
         prefer: suspend (PreferWebSourceEvent) -> Unit,

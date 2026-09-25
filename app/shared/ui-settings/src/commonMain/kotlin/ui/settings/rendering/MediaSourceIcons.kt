@@ -13,6 +13,9 @@ package me.him188.ani.app.ui.settings.rendering
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.runtime.Stable
@@ -33,6 +36,9 @@ object MediaSourceIcons {
         MediaSourceKind.WEB -> KindWeb
         MediaSourceKind.BitTorrent -> KindBT
         MediaSourceKind.LocalCache -> KindLocal
+        MediaSourceKind.LocalFile -> Icons.Rounded.Folder
+        MediaSourceKind.FileService -> Icons.Rounded.Storage
+        MediaSourceKind.CloudDrive -> Icons.Rounded.Cloud
     }
 
     // MediaLocation

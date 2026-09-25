@@ -163,7 +163,7 @@ class PlayerLoadErrorHandlerTest {
     }
 
     @Test
-    fun `ERR-05 preferKind BT 不自动换源`() = runFetchMediaSelectorTestSuite {
+    fun `BT preference permits automatic fallback to available sources`() = runFetchMediaSelectorTestSuite {
         initSubject("test")
         val (_, session, sources) = configureFetchSession {
             object {
@@ -186,9 +186,9 @@ class PlayerLoadErrorHandlerTest {
         val job = testScope().launch { handler.handleError(session, selector) }
         testScope().advanceUntilIdle()
 
-        // PINNED: ERR-05 preferKind=BT 无自动换源, 但当前 media 仍在 delay 前被拉黑
+        // The failed candidate remains excluded when a different source is selected.
         assertTrue(job.isCompleted)
-        assertEquals(mediaA.mediaId, selector.selected.value?.mediaId)
+        assertEquals(mediaB.mediaId, selector.selected.value?.mediaId)
         assertEquals(setOf(mediaA.mediaId), handler.blacklist)
     }
 

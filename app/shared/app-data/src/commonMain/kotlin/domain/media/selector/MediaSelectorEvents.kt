@@ -37,7 +37,7 @@ interface MediaSelectorEvents {
     val onChangePreference: Flow<MediaPreference>
 
     /**
-     * 当用户手动选择偏好使用某个 Web 源的事件
+     * 当用户手动选择任一非缓存来源时发出的事件
      */
     val onPreferWebSource: Flow<PreferWebSourceEvent>
 

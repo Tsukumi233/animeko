@@ -68,4 +68,7 @@
     <string name="settings_media_auto_cache_partial">当前设置: 自动缓存观看进度之后的 %d 话, </string>
     <string name="settings_media_auto_cache_space">预计占用空间 %s/番剧</string>
     <string name="settings_media_sort_tip">长按排序，优先选择顺序较高的项目。\n选中数量越少，查询越快。</string>
+    <string name="settings_media_source_local_file">本地文件</string>
+    <string name="settings_media_source_file_service">网络文件</string>
+    <string name="settings_media_source_cloud_drive">网盘</string>
 </resources>

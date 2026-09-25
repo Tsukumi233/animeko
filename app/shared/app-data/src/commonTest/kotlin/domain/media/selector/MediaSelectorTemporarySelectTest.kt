@@ -14,6 +14,7 @@ import kotlinx.io.files.Path
 import me.him188.ani.app.domain.media.DroppedFileMedia
 import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnBeforeSelect
 import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnChangePreference
+import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnPreferWebSource
 import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnSelect
 import me.him188.ani.app.domain.media.selector.testFramework.collectEvents
 import me.him188.ani.app.domain.media.selector.testFramework.runSimpleMediaSelectorTestSuite
@@ -97,7 +98,7 @@ class MediaSelectorTemporarySelectTest {
                 assertTrue(selector.select(online))
             }
 
-            collected.assertOrder(OnBeforeSelect::class, OnChangePreference::class, OnSelect::class)
+            collected.assertOrder(OnBeforeSelect::class, OnChangePreference::class, OnPreferWebSource::class, OnSelect::class)
             assertSame(dropped, collected.onSelect.single().event.previousMedia)
             assertSame(online, selector.selected.value)
             assertEquals("A", selector.alliance.finalSelected.first())

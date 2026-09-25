@@ -30,7 +30,7 @@ import me.him188.ani.utils.logging.logger
 import org.koin.core.Koin
 
 /**
- * 监听用户偏好的 Web 源变更
+ * 保存用户为当前番剧选择的来源；自动回退不会写入此偏好。
  */
 class ObserveWebMediaSourcePreferenceExtension(
     private val context: PlayerExtensionContext,
@@ -49,26 +49,26 @@ class ObserveWebMediaSourcePreferenceExtension(
             context.sessionFlow.flatMapLatest { it.fetchSelectFlow }.collectLatest { bundle ->
                 if (bundle == null) return@collectLatest
                 coroutineScope {
-                    // 监听用户喜欢的 Web 源变更, 增加偏好
+                    // 监听用户手动选择来源的事件。
                     launch {
                         bundle.mediaSelector.eventHandling.preferWebMediaSource { event ->
                             if (event.subjectId != context.subjectId) return@preferWebMediaSource
                             val currentPreference = getPreferredWebMediaSource(event.subjectId).first()
                             if (currentPreference != event.mediaSourceId) {
-                                logger.info { "Set web source preference for subject ${context.subjectId} to ${event.mediaSourceId}" }
+                                logger.info { "Set source preference for subject ${context.subjectId} to ${event.mediaSourceId}" }
                                 setPreferredWebMediaSource(event.subjectId, event.mediaSourceId)
                             }
                         }
                     }
 
-                    // 监听 Web 源加载失败的情况, 删除偏好.
+                    // 来源查询失败时删除对应偏好。
                     // 条目级查询会话跨集共用, 只有源自身失败 (Failed) 才算; 被中途取消 (Abandoned) 不算.
                     combine(
                         // 如果这个 subject 没有偏好, 则不继续监听, 这里将会一直挂起
                         getPreferredWebMediaSource(context.subjectId).filterNotNull(),
                         combine(
                             bundle.mediaFetchSession.mediaSourceResults
-                                .filter { it.kind == MediaSourceKind.WEB }
+                                .filter { it.kind != MediaSourceKind.LocalCache }
                                 .map { r -> r.state.map { r } },
                             Array<MediaSourceFetchResult>::toList,
                         ),
@@ -77,7 +77,7 @@ class ObserveWebMediaSourcePreferenceExtension(
                             if (it.mediaSourceId != preferredWebMediaSourceId) return@forEach
                             if (it.state.value is MediaSourceFetchState.Failed) {
                                 logger.info {
-                                    "Remove web source preference for subject ${context.subjectId} from ${it.mediaSourceId}. " +
+                                    "Remove source preference for subject ${context.subjectId} from ${it.mediaSourceId}. " +
                                             "because source state in this session is ${it.state.value.str()}."
                                 }
                                 setPreferredWebMediaSource(context.subjectId, null)

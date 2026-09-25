@@ -92,7 +92,7 @@ class MediaAutoSelectorTest {
     }
 
     @Test
-    fun `pending remembered WEB source does not block BT completion`() = runFetchMediaSelectorTestSuite {
+    fun `pending remembered source is tried before completed default kind`() = runFetchMediaSelectorTestSuite {
         initSelection()
         val (_, session, sources) = configureFetchSession {
             object {
@@ -102,6 +102,9 @@ class MediaAutoSelectorTest {
         }
         val selection = launchSelection(session, "web1")
         sources.bt1.complete(media(kind = BitTorrent, subjectName = "Example Series"))
+        testScope().runCurrent()
+        assertFalse(selection.isCompleted)
+        sources.web1.complete(emptyList<Media>())
         testScope().runCurrent()
         assertEquals(sources.bt1.instance.mediaSourceId, selection.await()?.mediaSourceId)
     }
@@ -177,7 +180,7 @@ class MediaAutoSelectorTest {
     }
 
     @Test
-    fun `empty BT results end selection even while WEB is pending`() = runFetchMediaSelectorTestSuite {
+    fun `empty preferred kind waits for remaining fallback sources`() = runFetchMediaSelectorTestSuite {
         initSelection()
         val (_, session, sources) = configureFetchSession {
             object {
@@ -188,8 +191,10 @@ class MediaAutoSelectorTest {
         val selection = launchSelection(session)
         sources.bt1.complete(emptyList<Media>())
         testScope().runCurrent()
-        assertTrue(selection.isCompleted)
-        assertNull(selection.await())
+        assertFalse(selection.isCompleted)
+        sources.web1.complete(media(kind = WEB, subjectName = "Example Series"))
+        testScope().runCurrent()
+        assertEquals(sources.web1.instance.mediaSourceId, selection.await()?.mediaSourceId)
     }
 
     @Test

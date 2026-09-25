@@ -87,7 +87,7 @@ class SwitchMediaOnPlayerErrorExtension(
         )
 
         // 播放失败时自动切换下一个 media.
-        // 即使是 BT 出错, 我们也会尝试切换到下一个 WEB 类型的数据源, 而不是继续尝试 BT.
+        // 按类型偏好选择其他候选，失败候选在当前会话中被排除。
         getVideoScaffoldConfigUseCase().map { it.autoSwitchMediaOnPlayerError }
             .collectLatest { autoSwitchMediaOnPlayerError ->
                 if (!autoSwitchMediaOnPlayerError) {
@@ -188,23 +188,20 @@ internal class PlayerLoadErrorHandler(
             getSourceTiers.asFlow(),
         ) { kind, tiers -> kind to tiers }.first()
 
-        if (preferKind != MediaSourceKind.WEB) {
-            logger.info { "Player errored, but preferKind is not WEB ($preferKind), skip automatic switch" }
-            return
-        }
-
         val result = MediaAutoSelector(mediaSelector).select(
             session,
             MediaAutoSelector.Config(
                 selectCache = false,
                 blacklist = blacklistedMediaIds,
-                web = MediaAutoSelector.Web(
+                web = if (preferKind == MediaSourceKind.WEB) MediaAutoSelector.Web(
                     sourceTiers = sourceTiers,
                     // 错误切换不需要等太长时间。
                     exactMatchAfter = 1.seconds,
                     fuzzyMatchAfter = 1.seconds,
                     waitForPendingSources = false,
-                ),
+                ) else null,
+                fallbackToOtherKinds = true,
+                relaxPreferencesOnFailure = true,
             ),
             expectedSelection = failedMedia,
         )

@@ -60,6 +60,9 @@ object MediaGrouper {
             }
 
             MediaSourceKind.WEB,
+            MediaSourceKind.LocalFile,
+            MediaSourceKind.FileService,
+            MediaSourceKind.CloudDrive,
             MediaSourceKind.LocalCache -> media.mediaId
         }
     }

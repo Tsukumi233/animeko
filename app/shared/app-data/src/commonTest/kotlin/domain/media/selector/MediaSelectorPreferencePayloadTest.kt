@@ -18,6 +18,7 @@ import me.him188.ani.app.domain.media.selector.testFramework.MediaSelectorTestSu
 import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnBeforeSelect
 import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnChangePreference
 import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnSelect
+import me.him188.ani.app.domain.media.selector.testFramework.RecordedMediaSelectorEvent.OnPreferWebSource
 import me.him188.ani.app.domain.media.selector.testFramework.SimpleMediaSelectorTestSuite
 import me.him188.ani.app.domain.media.selector.testFramework.collectEvents
 import me.him188.ani.app.domain.media.selector.testFramework.runSimpleMediaSelectorTestSuite
@@ -100,11 +101,12 @@ class MediaSelectorPreferencePayloadTest {
             assertTrue(selector.select(target))
         }
 
-        // 约束事件总量: prefer 与 select 各广播一次偏好, 且 BT media 不发 onPreferWebSource
+        // Changing a preference and selecting a resource each publish their corresponding events.
         collected.assertOrder(
             OnChangePreference::class,
             OnBeforeSelect::class,
             OnChangePreference::class,
+            OnPreferWebSource::class,
             OnSelect::class,
         )
         assertEquals(
@@ -231,10 +233,11 @@ class MediaSelectorPreferencePayloadTest {
             assertTrue(selector.select(target))
         }
 
-        // 约束事件总量: 恰好一次 onChangePreference, 且 BT media 不发 onPreferWebSource
+        // Selection publishes both viewing preferences and the remembered source.
         collected.assertOrder(
             OnBeforeSelect::class,
             OnChangePreference::class,
+            OnPreferWebSource::class,
             OnSelect::class,
         )
         assertEquals(

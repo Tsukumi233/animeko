@@ -91,7 +91,7 @@ class MediaSelectorEventOrderTest {
         }
 
     @Test
-    fun `SEL-02 select BT media 不发 onPreferWebSource`() = runSimpleMediaSelectorTestSuite {
+    fun `select BT media emits source preference in selection event order`() = runSimpleMediaSelectorTestSuite {
         val previous = media(alliance = "字幕组A", subtitleLanguages = listOf("CHS"))
         val target = media(alliance = "字幕组B", subtitleLanguages = listOf("CHS"))
         mediaApi.addMedia(previous, target)
@@ -104,6 +104,7 @@ class MediaSelectorEventOrderTest {
         collected.assertOrder(
             OnBeforeSelect::class,
             OnChangePreference::class,
+            OnPreferWebSource::class,
             OnSelect::class,
         )
         val expectedEvent = SelectEvent(

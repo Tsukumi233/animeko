@@ -43,8 +43,9 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
         val blacklist: Set<String> = emptySet(),
         /** Null waits for the preferred source kind to complete, using the existing BT preference rules. */
         val web: Web? = null,
-        /** Startup may fall back to another kind; player-error replacement stays within WEB. */
+        /** Allow selection from other source kinds when the phased candidates are exhausted. */
         val fallbackToOtherKinds: Boolean = false,
+        val relaxPreferencesOnFailure: Boolean = false,
     )
 
     /** Web deadlines start only after the remembered source has finished without a selection. */
@@ -143,12 +144,12 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
     /** Pure decision over a coherent snapshot. Only [select] advances time or writes selection. */
     private fun decide(snapshot: MediaAutoSelectSnapshot, config: Config, stage: Stage): Decision {
         val preferredSource = snapshot.sources.firstOrNull {
-            it.kind == MediaSourceKind.WEB && it.mediaSourceId == config.preferredSourceId
+            it.kind != MediaSourceKind.LocalCache && it.mediaSourceId == config.preferredSourceId
         }
         val candidates = snapshot.candidates.filter { it.result.mediaId !in config.blacklist }
         val preferred = snapshot.preferred.filter { it.result.mediaId !in config.blacklist }
 
-        // A ready cache wins immediately, even over a completed remembered WEB source.
+        // A ready cache wins immediately, even over a completed remembered source.
         if (config.selectCache) {
             // Caches of the whole subject are candidates until the episode is known, so wait for it.
             if (!snapshot.context.hasEpisode) return Decision.Wait
@@ -164,25 +165,30 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
         if (stage == Stage.PreferredSource && preferredSource?.state?.isFinal == true &&
             snapshot.context.allFieldsLoaded()
         ) {
-            findWebCandidate(snapshot, preferred.filter { it.result.mediaSourceId == preferredSource.mediaSourceId })?.let {
+            findCandidate(
+                snapshot, preferred.filter { it.result.mediaSourceId == preferredSource.mediaSourceId },
+                ignoreAlliance = preferredSource.kind == MediaSourceKind.WEB,
+            )?.let {
                 return Decision.Select(it, "preferred source")
             }
         }
 
-        if (config.web == null) return decideOnCompletion(snapshot, preferred)
         if (stage == Stage.PreferredSource) {
             if (preferredSource != null && !preferredSource.state.isFinal) return Decision.Wait
             if (preferredSource != null && preferredSource.results.isNotEmpty() &&
                 !snapshot.context.allFieldsLoaded()
             ) return Decision.Wait
-            return Decision.StartFallback
+            if (config.web != null) return Decision.StartFallback
         }
+        if (config.web == null) return decideOnCompletion(snapshot, preferred, candidates.takeIf { config.fallbackToOtherKinds && config.relaxPreferencesOnFailure }.orEmpty(), config.relaxPreferencesOnFailure)
         return decideWeb(snapshot, config, stage, candidates, preferred)
     }
 
     private fun decideOnCompletion(
         snapshot: MediaAutoSelectSnapshot,
         preferred: List<MaybeExcludedMedia.Included>,
+        fallbackCandidates: List<MaybeExcludedMedia.Included> = emptyList(),
+        relaxPreferences: Boolean = false,
     ): Decision {
         // With no enabled sources of the preferred kind, wait for every source (CompletedConditions semantics).
         val preferredSources = snapshot.sources.filter {
@@ -190,11 +196,14 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
         }
         val waitingFor = preferredSources.ifEmpty { snapshot.sources }
         if (waitingFor.any { !it.state.isFinal }) return Decision.Wait
-        if (preferred.isEmpty()) return Decision.Exhausted
+        if (preferred.isEmpty() && fallbackCandidates.isEmpty()) {
+            return if (snapshot.sources.any { !it.state.isFinal }) Decision.Wait else Decision.Exhausted
+        }
         if (!snapshot.context.allFieldsLoaded()) return Decision.Wait
         val media = MediaSelectionDecider.findByPreference(
             preferred, snapshot.preference, snapshot.availableAlliances, snapshot.context, snapshot.settings,
-        ) ?: return Decision.Exhausted
+        ) ?: findCandidate(snapshot, fallbackCandidates, relax = relaxPreferences, ignoreAlliance = false)
+            ?: return if (snapshot.sources.any { !it.state.isFinal }) Decision.Wait else Decision.Exhausted
         return Decision.Select(media, "preferred kind completed")
     }
 
@@ -233,8 +242,8 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
         }.toList().sortedWith(compareBy({ it.first.first }, { it.first.second }))
         val preferredIds = preferred.map { it.result.mediaId }.toSet()
         for ((_, group) in groups) {
-            val media = findWebCandidate(snapshot, group.filter { it.result.mediaId in preferredIds })
-                ?: findWebCandidate(snapshot, group, relax = true)
+            val media = findCandidate(snapshot, group.filter { it.result.mediaId in preferredIds })
+                ?: findCandidate(snapshot, group, relax = true)
             if (media != null) {
                 val candidate = group.first { it.result == media }
                 return Decision.Select(
@@ -247,22 +256,23 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
         // Empty final results can finish early; candidates belonging to a later phase must wait.
         if (allCompleted && webCandidates.isEmpty()) {
             return if (config.fallbackToOtherKinds) {
-                decideOnCompletion(snapshot, preferred.filter { it.result.kind != MediaSourceKind.WEB })
+                decideOnCompletion(snapshot, preferred.filter { it.result.kind != MediaSourceKind.WEB }, candidates.filter { it.result.kind != MediaSourceKind.WEB }.takeIf { config.relaxPreferencesOnFailure }.orEmpty(), config.relaxPreferencesOnFailure)
             } else Decision.Exhausted
         }
         if (stage == Stage.Fuzzy && (allCompleted || !web.waitForPendingSources)) return Decision.Exhausted
         return Decision.Wait
     }
 
-    private fun findWebCandidate(
+    private fun findCandidate(
         snapshot: MediaAutoSelectSnapshot,
         candidates: List<MaybeExcludedMedia.Included>,
         relax: Boolean = false,
+        ignoreAlliance: Boolean = true,
     ): Media? = MediaSelectionDecider.findByPreference(
         candidates,
         if (relax) snapshot.preference.copy(
             alliance = ANY_FILTER, resolution = ANY_FILTER, subtitleLanguageId = ANY_FILTER, mediaSourceId = ANY_FILTER,
-        ) else snapshot.preference.copy(alliance = ANY_FILTER),
+        ) else if (ignoreAlliance) snapshot.preference.copy(alliance = ANY_FILTER) else snapshot.preference,
         snapshot.availableAlliances, snapshot.context, snapshot.settings,
     )
 

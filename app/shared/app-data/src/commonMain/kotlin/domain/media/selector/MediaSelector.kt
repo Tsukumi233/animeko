@@ -549,7 +549,7 @@ class DefaultMediaSelector(
             }
 
             broadcastChangePreference()
-            if (candidate.kind == MediaSourceKind.WEB) {
+            if (candidate.kind != MediaSourceKind.LocalCache) {
                 broadcastWebSourcePreference(candidate.mediaSourceId)
             }
         }
