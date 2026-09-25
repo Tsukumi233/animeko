@@ -194,6 +194,15 @@ abstract class ResourceLibraryDao {
         removeSuggestion(resource.id)
     }
 
+    @Transaction
+    open suspend fun confirmBindings(resources: List<LibraryResourceEntity>, bindings: List<LibraryEpisodeBindingEntity>) {
+        val byId = resources.associateBy { it.id }
+        require(bindings.all { byId[it.resourceId]?.sourceId == it.sourceId })
+        resources.forEach { upsertResource(it) }
+        bindings.forEach { upsertBinding(it) }
+        resources.forEach { removeSuggestion(it.id) }
+    }
+
     /** 仅完整成功且仍是当前扫描的结果可以判定缺失；取消和失败不调用此方法。 */
     @Transaction
     open suspend fun completeScan(rootId: String, token: String, completedMillis: Long): Boolean {

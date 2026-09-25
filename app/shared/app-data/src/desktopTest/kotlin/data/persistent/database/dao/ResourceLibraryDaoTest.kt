@@ -6,6 +6,7 @@ import me.him188.ani.app.data.persistent.database.createTestAniDatabase
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ResourceLibraryDaoTest {
@@ -19,6 +20,21 @@ class ResourceLibraryDaoTest {
     }
 
     private fun resource() = LibraryResourceEntity("video", "disk", "01.mkv", "{}", "01.mkv", "VIDEO")
+
+    @Test
+    fun `batch validates every binding before exposing any associations`() = test { dao ->
+        val first = resource()
+        val second = first.copy(id = "video2", resourceKey = "02.mkv")
+        val bindings = listOf(
+            LibraryEpisodeBindingEntity(first.id, "disk", 1, 2, "{}"),
+            LibraryEpisodeBindingEntity(second.id, "wrong-source", 3, 4, "{}"),
+        )
+        assertFailsWith<IllegalArgumentException> { dao.confirmBindings(listOf(first, second), bindings) }
+        assertTrue(dao.resources().first().isEmpty())
+        assertTrue(dao.bindings().first().isEmpty())
+        dao.confirmBindings(listOf(first, second), bindings.map { it.copy(sourceId = "disk") })
+        assertEquals(2, dao.bindings().first().size)
+    }
 
     @Test
     fun `confirmed association is idempotent without a collection row`() = test { dao ->

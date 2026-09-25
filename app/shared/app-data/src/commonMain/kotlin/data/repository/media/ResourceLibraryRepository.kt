@@ -25,6 +25,14 @@ import me.him188.ani.datasources.api.topic.EpisodeRange
 import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.utils.platform.Uuid
 
+data class ResourceAssociationInput(
+    val entry: MediaSourceEntry,
+    val subjectId: Int,
+    val episodeId: Int,
+    val media: Media,
+    val selectedFilePath: String? = null,
+)
+
 /** 保存明确的资源归属；不改变收藏状态、播放历史或全局选源偏好。 */
 class ResourceLibraryRepository(
     val dao: ResourceLibraryDao,
@@ -70,6 +78,23 @@ class ResourceLibraryRepository(
 
     suspend fun removeBinding(resourceId: String, subjectId: Int, episodeId: Int) = writes.withLock {
         dao.removeBinding(resourceId, subjectId, episodeId)
+        mutableRevision.update { it + 1 }
+    }
+
+    /** 调用方先完成条目与剧集缓存，确认整批后一次提交，不暴露半批关联。 */
+    suspend fun associateBatch(inputs: List<ResourceAssociationInput>) = writes.withLock {
+        require(inputs.all { it.subjectId > 0 && it.episodeId > 0 && it.media.mediaSourceId == it.entry.reference.sourceId })
+        val resources = LinkedHashMap<Pair<String, String>, LibraryResourceEntity>()
+        val bindings = inputs.map { input ->
+            val reference = input.entry.reference
+            val key = reference.sourceId to reference.resourceId
+            val resource = resources[key] ?: input.entry.toEntity(
+                dao.findResource(reference.sourceId, reference.resourceId)?.id,
+            ).also { resources[key] = it }
+            LibraryEpisodeBindingEntity(resource.id, resource.sourceId, input.subjectId, input.episodeId,
+                json.encodeToString(Media.serializer(), input.media), input.selectedFilePath)
+        }
+        dao.confirmBindings(resources.values.toList(), bindings)
         mutableRevision.update { it + 1 }
     }
 
