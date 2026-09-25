@@ -9,6 +9,10 @@
 
 package me.him188.ani.app.desktop
 
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapability
+
+import me.him188.ani.app.domain.media.resolver.SourceResourceMediaResolver
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
@@ -149,6 +153,7 @@ fun getDesktopModules(getContext: () -> DesktopContext, scope: CoroutineScope) =
             saveDir = saveDir.toKtPath(),
             mediaResolver = get<MediaResolver>(),
             pikpakConfig = { pikpakConfig.value },
+            sourceCapabilities = { get<MediaSourceManager>().currentInstances.mapNotNull { it.source as? MediaDownloadCapability } },
         )
     }
 
@@ -186,6 +191,7 @@ fun getDesktopModules(getContext: () -> DesktopContext, scope: CoroutineScope) =
             listOf<MediaResolver>(OfflineDownloadMediaResolver(get(), fallback = btFallback))
                 .plus(torrentResolvers)
                 .plus(LocalFileMediaResolver())
+                .plus(SourceResourceMediaResolver { get() })
                 .plus(HttpStreamingMediaResolver())
                 .plus(
                     DesktopWebMediaResolver(

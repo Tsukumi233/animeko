@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.JsonElement
 import me.him188.ani.app.data.models.preference.ProxyAuthorization
@@ -263,14 +265,16 @@ class MediaSourceManagerImpl(
             )
         }
     }
+    private val instanceSnapshot = MutableStateFlow<List<MediaSourceInstance>>(emptyList())
     override val allInstances =
         combine(instances.flow, proxyProvider.proxy.distinctUntilChanged()) { saves, config ->
             // 一定要 additionalSources 在前面, local sources 需要优先使用
             this.additionalSources + saves.mapNotNull { createInstance(it, config) }
         }.onReplacement { list ->
             list.forEach { it.close() }
-        }.flowOn(flowCoroutineContext).stateIn(scope, SharingStarted.Eagerly, emptyList())
-    override val currentInstances: List<MediaSourceInstance> get() = allInstances.value
+        }.onEach { instanceSnapshot.value = it }
+            .flowOn(flowCoroutineContext).shareIn(scope, SharingStarted.Eagerly, replay = 1)
+    override val currentInstances: List<MediaSourceInstance> get() = instanceSnapshot.value
     override val allFactories: List<MediaSourceFactory> get() = factories
 
     private fun createInstance(save: MediaSourceSave, config: ProxyConfig?): MediaSourceInstance? {

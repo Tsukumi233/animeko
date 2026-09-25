@@ -9,6 +9,10 @@
 
 package me.him188.ani.android
 
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapability
+
+import me.him188.ani.app.domain.media.resolver.SourceResourceMediaResolver
+
 import android.content.Intent
 import android.os.Environment
 import android.widget.Toast
@@ -167,6 +171,7 @@ fun getAndroidModules(
             saveDir = saveDir,
             mediaResolver = get<MediaResolver>(),
             pikpakConfig = { pikpakConfig.value },
+            sourceCapabilities = { get<MediaSourceManager>().currentInstances.mapNotNull { it.source as? MediaDownloadCapability } },
         )
     }
 
@@ -191,6 +196,7 @@ fun getAndroidModules(
             listOf<MediaResolver>(OfflineDownloadMediaResolver(get(), fallback = btFallback))
                 .plus(torrentResolvers)
                 .plus(LocalFileMediaResolver())
+                .plus(SourceResourceMediaResolver { get() })
                 .plus(HttpStreamingMediaResolver())
                 .plus(
                     AndroidWebMediaResolver(

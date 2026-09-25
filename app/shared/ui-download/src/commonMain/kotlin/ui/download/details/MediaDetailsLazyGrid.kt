@@ -53,6 +53,9 @@ import me.him188.ani.app.tools.formatDateTime
 import me.him188.ani.app.ui.foundation.ProvideCompositionLocalsForPreview
 import me.him188.ani.app.ui.foundation.setClipEntryText
 import me.him188.ani.app.ui.foundation.widgets.LocalToaster
+import me.him188.ani.app.ui.lang.settings_media_source_local_file
+import me.him188.ani.app.ui.lang.settings_media_source_file_service
+import me.him188.ani.app.ui.lang.settings_media_source_cloud_drive
 import me.him188.ani.app.ui.lang.Lang
 import me.him188.ani.app.ui.lang.cache_details_browse_file
 import me.him188.ani.app.ui.lang.cache_details_copied
@@ -134,6 +137,7 @@ data class MediaDetails(
                 is ResourceLocation.LocalFile -> download.filePath
                 is ResourceLocation.MagnetLink -> download.uri
                 is ResourceLocation.WebVideo -> download.uri
+                is ResourceLocation.SourceResource -> originalMedia.originalUrl
             }
             val fileType = when (val download = cachedMedia?.download ?: originalMedia.download) {
                 is ResourceLocation.HttpStreamingFile -> null
@@ -141,6 +145,7 @@ data class MediaDetails(
                 is ResourceLocation.LocalFile -> download.fileType
                 is ResourceLocation.MagnetLink -> null
                 is ResourceLocation.WebVideo -> null
+                is ResourceLocation.SourceResource -> null
             }
             val contentDownloadUri = when (val download = cachedMedia?.download) {
                 is ResourceLocation.LocalFile -> download.originalUri
@@ -148,6 +153,7 @@ data class MediaDetails(
                 is ResourceLocation.HttpTorrentFile,
                 is ResourceLocation.MagnetLink,
                 is ResourceLocation.WebVideo,
+                is ResourceLocation.SourceResource,
                 null -> null
             }
             val localCacheFilePath = when (val download = cachedMedia?.download) {
@@ -156,6 +162,7 @@ data class MediaDetails(
                 is ResourceLocation.HttpTorrentFile,
                 is ResourceLocation.MagnetLink,
                 is ResourceLocation.WebVideo,
+                is ResourceLocation.SourceResource,
                 null -> null
             }
 
@@ -293,6 +300,9 @@ fun MediaDetailsLazyGrid(
                         val kind = when (details.kind) {
                             MediaSourceKind.WEB -> stringResource(Lang.cache_details_source_online)
                             MediaSourceKind.BitTorrent -> "BT"
+                            MediaSourceKind.LocalFile -> stringResource(Lang.settings_media_source_local_file)
+                            MediaSourceKind.FileService -> stringResource(Lang.settings_media_source_file_service)
+                            MediaSourceKind.CloudDrive -> stringResource(Lang.settings_media_source_cloud_drive)
                             MediaSourceKind.LocalCache -> stringResource(Lang.cache_details_source_local)
                         }
                         SelectionContainer {

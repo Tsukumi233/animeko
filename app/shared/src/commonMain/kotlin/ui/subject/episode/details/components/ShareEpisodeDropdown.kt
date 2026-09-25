@@ -62,6 +62,7 @@ fun ShareEpisodeDropdown(
     ) {
         data.download?.let { download ->
             val downloadText = when (download) {
+                is ResourceLocation.SourceResource -> return@let
                 is ResourceLocation.HttpStreamingFile -> stringResource(Lang.subject_episode_share_stream_link)
                 is ResourceLocation.HttpTorrentFile -> stringResource(Lang.subject_episode_share_torrent_download_link)
                 is ResourceLocation.LocalFile -> stringResource(Lang.subject_episode_share_local_file_link)

@@ -501,7 +501,10 @@ open class EpisodeViewModel(
             when (settings.preferKind) {
                 MediaSourceKind.WEB -> ViewKind.WEB
                 MediaSourceKind.BitTorrent -> ViewKind.BT
-                MediaSourceKind.LocalCache -> ViewKind.WEB
+                MediaSourceKind.LocalCache,
+                MediaSourceKind.LocalFile,
+                MediaSourceKind.FileService,
+                MediaSourceKind.CloudDrive -> ViewKind.WEB
                 null -> ViewKind.WEB
             }
         }

@@ -9,6 +9,36 @@
 
 package me.him188.ani.app.platform
 
+import me.him188.ani.app.domain.mediasource.fileservice.FileServiceCredentials
+
+import me.him188.ani.app.domain.mediasource.fileservice.FileServiceCredentialProvider
+
+import me.him188.ani.app.domain.mediasource.fileservice.FileServiceMediaSource
+
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapability
+
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapabilities
+
+import me.him188.ani.app.domain.media.cache.engine.ByteRangeMediaCacheEngine
+
+import kotlinx.serialization.json.Json
+
+import me.him188.ani.datasources.api.source.MediaResourceRef
+
+import me.him188.ani.app.domain.mediasource.pikpak.PikPakAccountServices
+
+import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSource
+
+import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanner
+
+import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSource
+
+import me.him188.ani.app.domain.mediasource.local.createLocalResourceAccess
+
+import me.him188.ani.app.domain.mediasource.local.LocalResourceAccess
+
+import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
+
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -363,6 +393,19 @@ private fun KoinApplication.otherModules(
                             ),
                         )
                     }*/
+                    add(
+                        HttpMediaCacheStorage(
+                            mediaSourceId = id, store = metadataStore, dao = database.httpCacheDownloadStateDao(),
+                            httpEngine = ByteRangeMediaCacheEngine(
+                                Path(get<MediaSaveDirProvider>().saveDir).resolve("byte-range"),
+                                MediaDownloadCapabilities(emptyList()) {
+                                    get<MediaSourceManager>().currentInstances.mapNotNull { it.source as? MediaDownloadCapability }
+                                },
+                                id,
+                            ),
+                            displayName = "LocalByteCopies", parentCoroutineContext = coroutineScope.childScopeContext(),
+                        ),
+                    )
                     for (engine in engines) {
                         add(
                             @Suppress("DEPRECATION")
@@ -408,12 +451,33 @@ private fun KoinApplication.otherModules(
         }
     }
 
+    single<FileServiceCredentialProvider> {
+        FileServiceCredentialProvider { sourceId ->
+            get<ResourceLibraryRepository>().dao.credentials(sourceId)?.let {
+                FileServiceCredentials(it.username, it.password, it.domain)
+            }
+        }
+    }
+    single<LocalResourceAccess> { createLocalResourceAccess(getContext()) }
+    single { ResourceLibraryScanner(get()) }
+
     // Media source services
     single<MediaSourceCodecManager> {
         MediaSourceCodecManager()
     }
     single<MediaSourceManager> {
         MediaSourceManagerImpl(
+            additionalFactories = {
+                listOf(
+                    LocalFileMediaSource.Factory(get()) { sourceId ->
+                        get<ResourceLibraryRepository>().dao.scanRoots().first()
+                            .filter { it.sourceId == sourceId }
+                            .map { Json.decodeFromString<MediaResourceRef>(it.referenceJson) }
+                    },
+                    PikPakMediaSource.Factory(get(), get(), { get<PikPakAccountServices>().config.value.downloadConcurrency }),
+                    FileServiceMediaSource.Factory(get()),
+                )
+            },
             additionalSources = {
                 get<MediaDownloadManager>().storages.map { it.cacheMediaSource }
             },

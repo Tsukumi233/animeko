@@ -12,13 +12,13 @@ interface MediaSourcePlaybackCapability {
     suspend fun resolveResource(reference: MediaResourceRef, episode: EpisodeMetadata): MediaDataProvider<*>
 }
 
-class SourceResourceMediaResolver(private val sourceManager: MediaSourceManager) : MediaResolver {
+class SourceResourceMediaResolver(private val sourceManager: () -> MediaSourceManager) : MediaResolver {
     override fun supports(media: Media): Boolean = media.download is ResourceLocation.SourceResource
 
     override suspend fun resolve(media: Media, episode: EpisodeMetadata): MediaDataProvider<*> {
         val reference = (media.download as? ResourceLocation.SourceResource)?.reference
             ?: throw UnsupportedMediaException(media)
-        val source = sourceManager.allInstances.first().firstOrNull {
+        val source = sourceManager().allInstances.first().firstOrNull {
             it.mediaSourceId == reference.sourceId
         }?.source ?: error("资源来源不可用，请检查来源设置")
         val playback = source as? MediaSourcePlaybackCapability ?: throw UnsupportedMediaException(media)

@@ -28,6 +28,9 @@ import me.him188.ani.app.data.models.preference.MediaSelectorSettings
 import me.him188.ani.app.data.models.preference.VideoResolverSettings
 import me.him188.ani.app.ui.foundation.LocalPlatform
 import me.him188.ani.app.ui.foundation.animation.AniAnimatedVisibility
+import me.him188.ani.app.ui.lang.settings_media_source_local_file
+import me.him188.ani.app.ui.lang.settings_media_source_file_service
+import me.him188.ani.app.ui.lang.settings_media_source_cloud_drive
 import me.him188.ani.app.ui.lang.Lang
 import me.him188.ani.app.ui.lang.settings_media_advanced_settings
 import me.him188.ani.app.ui.lang.settings_media_advanced_settings_description

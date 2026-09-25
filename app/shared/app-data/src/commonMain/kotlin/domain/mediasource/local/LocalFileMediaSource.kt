@@ -131,6 +131,7 @@ class LocalFileMediaSource(
 
     class Factory(private val access: LocalResourceAccess, private val roots: suspend (String) -> List<MediaResourceRef>) : MediaSourceFactory {
         override val factoryId = FactoryId
+        override val allowMultipleInstances = true
         override val info = MediaSourceInfo("本地文件", "用户选择的本地文件和目录")
         override fun create(mediaSourceId: String, config: MediaSourceConfig, client: ScopedHttpClient): MediaSource =
             LocalFileMediaSource(mediaSourceId, access, roots,
