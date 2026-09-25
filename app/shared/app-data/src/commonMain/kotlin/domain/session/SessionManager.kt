@@ -75,6 +75,7 @@ class SessionManager(
     private val refreshSession: SessionRefresher,
     private val clock: Clock = Clock.System,
     private val config: Config = Config(),
+    private val onAccountChange: suspend (publishSession: suspend () -> Unit) -> Unit = { it() },
 ) {
     fun interface SessionRefresher {
         /**
@@ -243,8 +244,10 @@ class SessionManager(
         refreshToken: String,
         isNewLogin: Boolean = true,
     ) {
-        tokenRepository.setSession(session)
-        tokenRepository.setRefreshToken(refreshToken)
+        suspend fun publish() {
+            tokenRepository.publishSession(session, refreshToken)
+        }
+        if (isNewLogin) onAccountChange { publish() } else publish()
         if (isNewLogin) {
             _stateProvider.emitEvent(SessionEvent.NewLogin)
         }
@@ -255,7 +258,7 @@ class SessionManager(
      * 设置为未登录状态. 同时清空 accessToken 和 refreshToken. 这也会导致 [stateProvider] [SessionStateProvider.stateFlow] 更新.
      */
     suspend fun clearSession() {
-        tokenRepository.clear()
+        onAccountChange { tokenRepository.clear() }
         // 注意, 我们这里不修改公开的 state. background task 会帮我们修改.
     }
 
@@ -273,12 +276,12 @@ class SessionManager(
 
         try {
             val result = refreshSession.refresh(refreshToken)
-            setSession(
+            tokenRepository.publishRenewedSession(
+                expectedRefreshToken = refreshToken,
                 session = AccessTokenSession(
                     tokens = result.tokens,
                 ),
                 refreshToken = result.refreshToken,
-                isNewLogin = false,
             )
             // 注意, 我们这里不修改公开的 state. background task 会帮我们修改.
         } catch (e: CancellationException) {

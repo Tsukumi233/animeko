@@ -69,7 +69,6 @@ import me.him188.ani.app.data.persistent.database.dao.SubjectCollectionDao
 import me.him188.ani.app.data.persistent.database.dao.SubjectCollectionEntity
 import me.him188.ani.app.data.persistent.database.dao.SubjectRelations
 import me.him188.ani.app.data.persistent.database.dao.SubjectRelationsDao
-import me.him188.ani.app.data.persistent.database.dao.deleteAll
 import me.him188.ani.app.data.persistent.database.dao.filterMostRecentUpdated
 import me.him188.ani.app.data.repository.Repository
 import me.him188.ani.app.data.repository.RepositoryException
@@ -262,6 +261,7 @@ class SubjectCollectionRepositoryImpl(
     private val nsfwModeSettingsFlow: Flow<NsfwMode>,
     private val getCurrentDate: () -> PackedDate = { PackedDate.now() },
     private val getEpisodeTypeFiltersUseCase: GetEpisodeTypeFiltersUseCase,
+    private val accountGuard: CollectionCacheAccountGuard = CollectionCacheAccountGuard(),
     defaultDispatcher: CoroutineContext = Dispatchers.Default,
     private val cacheExpiry: Duration = 1.hours,
 ) : SubjectCollectionRepository(defaultDispatcher) {
@@ -349,27 +349,28 @@ class SubjectCollectionRepositoryImpl(
         }
 
     /**
-     * 从服务端拉取条目 (含用户的收藏状态与剧集) 并写入本地缓存: 覆盖同 id 的旧行 (`lastFetched` 为当前时间), 删除本地多余的剧集.
+     * 从服务端拉取条目及用户状态，覆盖同 ID 的缓存。资源库关联条目保留服务端缺失的已知剧集。
      *
      * @return 服务端返回的条目; 条目不存在 (404) 时为 `null`, 此时不写入任何东西.
      */
     private suspend fun refetchSubjectCollection(subjectId: Int): AniSubjectCollection? {
+        val generation = accountGuard.snapshot()
         val subject = subjectService.getSubjectCollection(subjectId) ?: return null
         val lastFetched = currentTimeMillis()
         val subjectEntity = subject.toEntity(lastFetched = lastFetched)
         val episodeEntities = subject.episodes.map {
             it.toEntity1(subjectId, lastFetched = lastFetched)
         }
-        subjectCollectionDao.upsert(subjectEntity)
-
-        // 更新剧集列表
-        val oldIds = episodeCollectionDao.listIdBySubjectId(subjectId).first().toMutableList()
-        episodeCollectionDao.upsert(episodeEntities)
-        for (newEntity in episodeEntities) {
-            oldIds.remove(newEntity.episodeId)
-        }
-        if (oldIds.isNotEmpty()) { // 删除本地存的多余的剧集 (通常没有)
-            episodeCollectionDao.deleteAllByEpisodeIds(subjectId, oldIds)
+        accountGuard.commit(generation) {
+            subjectCollectionDao.upsert(subjectEntity)
+            val oldIds = episodeCollectionDao.listIdBySubjectId(subjectId).first().toMutableList()
+            episodeCollectionDao.upsert(episodeEntities)
+            for (newEntity in episodeEntities) {
+                oldIds.remove(newEntity.episodeId)
+            }
+            if (oldIds.isNotEmpty()) {
+                episodeCollectionDao.deleteAllByEpisodeIds(subjectId, oldIds)
+            }
         }
         return subject
     }
@@ -466,43 +467,46 @@ class SubjectCollectionRepositoryImpl(
      *
      * @param onFetched 当所有网络请求都成功后调用
      */
-    private suspend inline fun fetchAndSaveSubjectCollectionsWithEpisodes(
+    private suspend fun fetchAndSaveSubjectCollectionsWithEpisodes(
         type: UnifiedCollectionType?,
         limit: Int,
         offset: Int,
-        onFetched: (items: List<AniSubjectCollection>) -> Unit = {},
+        onFetched: suspend (items: List<AniSubjectCollection>) -> Unit = {},
     ) {
         require(type != UnifiedCollectionType.NOT_COLLECTED) { "type must not be NOT_COLLECTED" }
         require(limit > 0) { "limit must be positive" }
 
         // 执行网络请求查询好需要的 subject 和 episodes
+        val generation = accountGuard.snapshot()
         val items = subjectService.getSubjectCollections(
             type = type?.toSubjectCollectionType(),
             offset = offset,
             limit = limit,
         )
 
-        onFetched(items)
+        accountGuard.commit(generation) {
+            onFetched(items)
 
-        // 批量插入条目信息
-        val lastFetched = currentTimeMillis()
-        subjectCollectionDao.upsert(
-            items.mapIndexed { index, batchSubjectCollection ->
-                batchSubjectCollection.toEntity(lastFetched = lastFetched)
-            },
-        )
-
-        // 必须先插入好条目信息, 否则插入 episode 会 foreign key constraint failed
-        episodeCollectionDao.upsert(
-            items
-                .flatMap { it.episodes }
-                .map { episode ->
-                    episode.toEntity1(
-                        subjectId = episode.subjectId.toInt(),
-                        lastFetched = lastFetched,
-                    )
+            // 批量插入条目信息
+            val lastFetched = currentTimeMillis()
+            subjectCollectionDao.upsert(
+                items.mapIndexed { index, batchSubjectCollection ->
+                    batchSubjectCollection.toEntity(lastFetched = lastFetched)
                 },
-        )
+            )
+
+            // 必须先插入好条目信息, 否则插入 episode 会 foreign key constraint failed
+            episodeCollectionDao.upsert(
+                items
+                    .flatMap { it.episodes }
+                    .map { episode ->
+                        episode.toEntity1(
+                            subjectId = episode.subjectId.toInt(),
+                            lastFetched = lastFetched,
+                        )
+                    },
+            )
+        }
     }
 
     override suspend fun updateRating(
@@ -513,6 +517,7 @@ class SubjectCollectionRepositoryImpl(
         isPrivate: Boolean?,
     ) {
         withContext(defaultDispatcher) {
+            val generation = accountGuard.snapshot()
             subjectService.patchSubjectCollection(
                 subjectId,
                 AniUpdateSubjectCollectionRequest(
@@ -525,13 +530,13 @@ class SubjectCollectionRepositoryImpl(
                 ),
             )
 
-            subjectCollectionDao.updateRating(
+            accountGuard.commit(generation) { subjectCollectionDao.updateRating(
                 subjectId,
                 score,
                 comment,
                 tags,
                 isPrivate,
-            )
+            ) }
         }
     }
 
@@ -565,7 +570,7 @@ class SubjectCollectionRepositoryImpl(
                         if (loadType == LoadType.REFRESH) {
                             // 仅在网络请求成功后才删除缓存, 否则会导致无网络时清空缓存
                             // 必须清除缓存, 让顺序与服务器同步, 否则会死循环刷新
-                            subjectCollectionDao.deleteAll(query.type)
+                            subjectCollectionDao.invalidateCollectionPage(query.type)
                         }
 
                         // 拿到的数量小于请求的 limit 就代表这是最后一页, 否则总数不是 limit 整数倍时
@@ -629,15 +634,17 @@ class SubjectCollectionRepositoryImpl(
         payload: AniUpdateSubjectCollectionRequest,
     ) {
         withContext(defaultDispatcher) {
+            val generation = accountGuard.snapshot()
             subjectService.patchSubjectCollection(subjectId, payload)
-            subjectCollectionDao.updateType(subjectId, payload.collectionType.toUnifiedCollectionType())
+            accountGuard.commit(generation) { subjectCollectionDao.updateType(subjectId, payload.collectionType.toUnifiedCollectionType()) }
         }
     }
 
     private suspend fun deleteSubjectCollection(subjectId: Int) {
         withContext(defaultDispatcher) {
+            val generation = accountGuard.snapshot()
             subjectService.deleteSubjectCollection(subjectId)
-            subjectCollectionDao.delete(subjectId)
+            accountGuard.commit(generation) { subjectCollectionDao.delete(subjectId) }
         }
     }
 
@@ -673,6 +680,7 @@ class SubjectCollectionRepositoryImpl(
                     async {
                         semaphore.withPermit {
                             if (failed.value) return@withPermit
+                            val generation = accountGuard.snapshot()
                             val fetched = try {
                                 refetchSubjectCollection(subjectId)
                             } catch (e: CancellationException) {
@@ -685,8 +693,8 @@ class SubjectCollectionRepositoryImpl(
                                 return@withPermit
                             }
                             if (fetched == null || fetched.collectionType == null) {
-                                // 服务端已无收藏 (条目不存在或未收藏): 删除本地行, 剧集缓存有 ON DELETE CASCADE 随之删除
-                                subjectCollectionDao.delete(subjectId)
+                                // 服务端已无收藏；DAO 保留资源库需要的公开元数据，并清空用户状态。
+                                accountGuard.commit(generation) { subjectCollectionDao.delete(subjectId) }
                             }
                         }
                     }

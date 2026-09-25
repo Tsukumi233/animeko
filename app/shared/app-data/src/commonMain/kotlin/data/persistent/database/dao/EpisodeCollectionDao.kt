@@ -190,6 +190,7 @@ interface EpisodeCollectionDao {
         """
         DELETE FROM episode_collection 
         WHERE subjectId = :subjectId
+        AND NOT EXISTS (SELECT 1 FROM library_episode_binding b WHERE b.subjectId = :subjectId)
         """,
     )
     suspend fun deleteAllBySubjectId(subjectId: Int)
@@ -198,6 +199,7 @@ interface EpisodeCollectionDao {
         """
         DELETE FROM episode_collection 
         WHERE subjectId = :subjectId AND episodeId IN (:episodeIds)
+        AND NOT EXISTS (SELECT 1 FROM library_episode_binding b WHERE b.subjectId = :subjectId)
         """,
     )
     suspend fun deleteAllByEpisodeIds(subjectId: Int, episodeIds: List<Int>)

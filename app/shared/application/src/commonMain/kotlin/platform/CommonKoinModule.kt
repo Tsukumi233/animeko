@@ -75,6 +75,7 @@ import me.him188.ani.app.data.network.SubjectService
 import me.him188.ani.app.data.network.WatchTogetherApiService
 import me.him188.ani.app.data.persistent.dataStores
 import me.him188.ani.app.data.persistent.database.AniDatabase
+import me.him188.ani.app.data.repository.subject.CollectionCacheAccountGuard
 import me.him188.ani.app.data.persistent.database.MIGRATION_19_20
 import me.him188.ani.app.data.persistent.database.createDatabaseBuilder
 import me.him188.ani.app.data.repository.media.MediaSourceSaves
@@ -189,6 +190,12 @@ private fun KoinApplication.otherModules(
             tokenRepository = get(),
             coroutineScope = coroutineScope,
             refreshSession = AniSessionRefresher { aniApiProvider.userAuthApi },
+            onAccountChange = { publish ->
+                get<CollectionCacheAccountGuard>().changeAccount {
+                    database.subjectCollection().deleteAll()
+                    publish()
+                }
+            },
         )
     }
     single<SessionStateProvider> {

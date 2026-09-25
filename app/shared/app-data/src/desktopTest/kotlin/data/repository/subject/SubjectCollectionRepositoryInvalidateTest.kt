@@ -103,7 +103,7 @@ import kotlin.time.Duration.Companion.seconds
  */
 class SubjectCollectionRepositoryInvalidateTest {
 
-    private class FakeSubjectService : SubjectService {
+    internal class FakeSubjectService : SubjectService {
         /**
          * 服务端上的条目 (含用户收藏状态), 按 id. [getSubjectCollection] 与 [getSubjectCollections] 都从这里取;
          * 不在其中的 id 视为条目不存在 (返回 `null`).
@@ -222,27 +222,30 @@ class SubjectCollectionRepositoryInvalidateTest {
         override val eventFlow: Flow<SessionEvent> = emptyFlow()
     }
 
-    private class Fixture(
+    internal class Fixture(
         val database: AniDatabase,
         val service: FakeSubjectService,
         val repository: SubjectCollectionRepository,
         val episodes: EpisodeCollectionRepository,
+        val accountGuard: CollectionCacheAccountGuard,
     ) {
         val dao: SubjectCollectionDao get() = database.subjectCollection()
     }
 
-    private fun runRepositoryTest(
+    internal fun runRepositoryTest(
         episodeTypes: List<EpisodeType> = EpisodeType.entries,
         block: suspend Fixture.() -> Unit,
     ) = runBlocking {
         val database = createTestAniDatabase()
         try {
+            val accountGuard = CollectionCacheAccountGuard()
             val service = FakeSubjectService()
             val episodeService = EpisodeServiceImpl(UnusedSubjectsApi)
             val animeScheduleRepository = AnimeScheduleRepository(AnimeScheduleService(UnusedScheduleApi))
             val getEpisodeTypeFiltersUseCase = GetEpisodeTypeFiltersUseCase { flowOf(episodeTypes) }
             lateinit var repository: SubjectCollectionRepositoryImpl
             val episodeCollectionRepository = EpisodeCollectionRepository(
+                accountGuard = accountGuard,
                 subjectDao = database.subjectCollection(),
                 episodeCollectionDao = database.episodeCollection(),
                 episodeService = episodeService,
@@ -251,6 +254,7 @@ class SubjectCollectionRepositoryInvalidateTest {
                 getEpisodeTypeFiltersUseCase = getEpisodeTypeFiltersUseCase,
             )
             repository = SubjectCollectionRepositoryImpl(
+                accountGuard = accountGuard,
                 subjectService = service,
                 subjectCollectionDao = database.subjectCollection(),
                 subjectRelationsDao = database.subjectRelations(),
@@ -262,13 +266,13 @@ class SubjectCollectionRepositoryInvalidateTest {
                 nsfwModeSettingsFlow = flowOf(NsfwMode.DISPLAY),
                 getEpisodeTypeFiltersUseCase = getEpisodeTypeFiltersUseCase,
             )
-            Fixture(database, service, repository, episodeCollectionRepository).block()
+            Fixture(database, service, repository, episodeCollectionRepository, accountGuard).block()
         } finally {
             database.close()
         }
     }
 
-    private fun subject(
+    internal fun subject(
         subjectId: Int,
         lastFetched: Long,
         type: UnifiedCollectionType = UnifiedCollectionType.DOING,
@@ -299,7 +303,7 @@ class SubjectCollectionRepositoryInvalidateTest {
     /**
      * 服务端返回的条目. [type] 为 `null` 表示条目存在但用户未收藏.
      */
-    private fun serverSubject(
+    internal fun serverSubject(
         subjectId: Int,
         type: AniCollectionType? = AniCollectionType.DOING,
         score: Int = 0,
@@ -395,7 +399,7 @@ class SubjectCollectionRepositoryInvalidateTest {
     }
 
     @Suppress("DEPRECATION")
-    private fun episode(
+    internal fun episode(
         subjectId: Int,
         episodeId: Int,
         sort: Int,

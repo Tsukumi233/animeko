@@ -155,14 +155,48 @@ interface SubjectCollectionDao {
         lastUpdated: Long = currentTimeMillis(),
     )
 
-    @Query("""DELETE FROM subject_collection WHERE subjectId = :subjectId""")
-    suspend fun delete(subjectId: Int)
+    @Transaction
+    suspend fun delete(subjectId: Int) = deleteByIds(listOf(subjectId))
 
     /**
-     * 删除多个条目的本地缓存. 剧集缓存 ([EpisodeCollectionEntity]) 会级联删除.
+     * 清除收藏状态。资源库关联所需的公开条目和剧集元数据保留，其余缓存级联删除。
      */
-    @Query("""DELETE FROM subject_collection WHERE subjectId IN (:subjectIds)""")
-    suspend fun deleteByIds(subjectIds: List<Int>)
+    @Transaction
+    suspend fun deleteByIds(subjectIds: List<Int>) {
+        val retained = libraryReferencedSubjects(subjectIds)
+        deleteUnreferencedByIds(subjectIds)
+        upsert(retained.map { it.copy(
+            collectionType = UnifiedCollectionType.NOT_COLLECTED,
+            selfRatingInfo = SelfRatingInfo.Empty,
+            lastUpdated = 0,
+            lastFetched = 0,
+        ) })
+        clearEpisodeCollectionState(subjectIds)
+    }
+
+    @Query("""SELECT * FROM subject_collection WHERE subjectId IN (:subjectIds)
+        AND EXISTS (SELECT 1 FROM library_episode_binding b WHERE b.subjectId = subject_collection.subjectId)""")
+    suspend fun libraryReferencedSubjects(subjectIds: List<Int>): List<SubjectCollectionEntity>
+
+    @Query("""DELETE FROM subject_collection WHERE subjectId IN (:subjectIds)
+        AND NOT EXISTS (SELECT 1 FROM library_episode_binding b WHERE b.subjectId = subject_collection.subjectId)""")
+    suspend fun deleteUnreferencedByIds(subjectIds: List<Int>)
+
+    @Query("""UPDATE episode_collection SET selfCollectionType = 'NOT_COLLECTED', lastFetched = 0
+        WHERE subjectId IN (:subjectIds)""")
+    suspend fun clearEpisodeCollectionState(subjectIds: List<Int>)
+
+    @Query("""SELECT subjectId FROM subject_collection WHERE :type IS NULL OR collectionType = :type""")
+    suspend fun cachedSubjectIds(type: UnifiedCollectionType? = null): List<Int>
+
+    /** 清空成功刷新的分页快照；后续页面到达前，保留同账号的评分与剧集观看状态。 */
+    @Transaction
+    suspend fun invalidateCollectionPage(type: UnifiedCollectionType?) {
+        val ids = cachedSubjectIds(type)
+        val retained = libraryReferencedSubjects(ids)
+        deleteUnreferencedByIds(ids)
+        upsert(retained.map { it.copy(collectionType = UnifiedCollectionType.NOT_COLLECTED, lastFetched = 0) })
+    }
 
     /**
      * 将所有条目的 [SubjectCollectionEntity.lastFetched] 置 0, 使所有本地缓存视为已过期,
@@ -171,11 +205,11 @@ interface SubjectCollectionDao {
     @Query("""UPDATE subject_collection SET lastFetched = 0""")
     suspend fun resetAllLastFetched()
 
-    @Query("""DELETE FROM subject_collection WHERE collectionType = :type""")
-    suspend fun deleteAll(type: UnifiedCollectionType)
+    @Transaction
+    suspend fun deleteAll(type: UnifiedCollectionType) = deleteByIds(cachedSubjectIds(type))
 
-    @Query("""DELETE FROM subject_collection""")
-    suspend fun deleteAll()
+    @Transaction
+    suspend fun deleteAll() = deleteByIds(cachedSubjectIds())
 
     /**
      * Retrieves a paginated list of `SubjectCollectionEntity` items, optionally filtered by type.
@@ -188,7 +222,7 @@ interface SubjectCollectionDao {
     @Query(
         """
     SELECT * FROM subject_collection 
-    WHERE collectionType IS NOT NULL 
+    WHERE collectionType != 'NOT_COLLECTED'
     AND (collectionType IN (:collectionTypes))
     ORDER BY lastUpdated DESC
     LIMIT :limit
@@ -204,7 +238,7 @@ interface SubjectCollectionDao {
     @Query(
         """
     SELECT * FROM subject_collection 
-    WHERE collectionType IS NOT NULL 
+    WHERE collectionType != 'NOT_COLLECTED'
     ORDER BY lastUpdated DESC
     LIMIT :limit
     OFFSET :offset
@@ -224,7 +258,7 @@ interface SubjectCollectionDao {
     @Query(
         """
         select * from subject_collection 
-        where (collectionType is NOT NULL AND (:collectionType IS NULL OR collectionType = :collectionType))
+        where (collectionType != 'NOT_COLLECTED' AND (:collectionType IS NULL OR collectionType = :collectionType))
         AND (:includeNsfw OR NOT nsfw)
         order by lastUpdated DESC, subjectId DESC
         """,
@@ -254,9 +288,8 @@ interface SubjectCollectionDao {
 
     @Query(
         """
-        SELECT lastFetched FROM subject_collection 
-        WHERE (:type IS NULL) OR (collectionType = :type)
-        ORDER BY lastFetched DESC LIMIT 1
+        SELECT COALESCE(MAX(lastFetched), 0) FROM subject_collection
+        WHERE collectionType != 'NOT_COLLECTED'AND ((:type IS NULL) OR (collectionType = :type))
         """,
     )
     suspend fun lastFetched(type: UnifiedCollectionType?): Long
@@ -277,7 +310,7 @@ interface SubjectCollectionDao {
     /**
      * 只包含保存在数据库的, 可能不完整
      */
-    @Query("""SELECT COUNT(*) FROM subject_collection WHERE (collectionType is NOT NULL AND (:collectionType IS NULL OR collectionType = :collectionType))""")
+    @Query("""SELECT COUNT(*) FROM subject_collection WHERE (collectionType != 'NOT_COLLECTED' AND (:collectionType IS NULL OR collectionType = :collectionType))""")
     fun countCollected(collectionType: UnifiedCollectionType?): Flow<Int>
 
     @Query("""UPDATE subject_collection SET cachedStaffUpdated = :time, cachedCharactersUpdated = :time WHERE subjectId = :subjectId""")
@@ -286,7 +319,7 @@ interface SubjectCollectionDao {
     @Query(
         """
         SELECT sc.subjectId FROM subject_collection sc
-        WHERE collectionType IS NOT NULL
+        WHERE collectionType != 'NOT_COLLECTED'
         AND (collectionType IN (:collectionTypes))
         """,
     )
@@ -295,7 +328,7 @@ interface SubjectCollectionDao {
     @Query(
         """
         SELECT sc.nameCn FROM subject_collection sc
-        WHERE collectionType IS NOT NULL
+        WHERE collectionType != 'NOT_COLLECTED'
         AND (collectionType IN (:collectionTypes))
         """,
     )

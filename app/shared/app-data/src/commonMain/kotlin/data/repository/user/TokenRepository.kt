@@ -25,7 +25,8 @@ import me.him188.ani.app.domain.session.isExpired
  * Do not access directly. Use [SessionManager] instead.
  */
 class TokenRepository(
-    private val dataStore: DataStore<TokenSave>
+    private val dataStore: DataStore<TokenSave>,
+    private val onRestoreSession: suspend (publishSession: suspend () -> Unit) -> Unit = { it() },
 ) {
     val refreshToken: Flow<String?> = dataStore.data.map { it.refreshToken }
     suspend fun setRefreshToken(value: String) {
@@ -92,6 +93,22 @@ class TokenRepository(
         }
     }
 
+    /** Publishes both tokens atomically so an in-flight renewal cannot combine two different sessions. */
+    suspend fun publishSession(session: AccessTokenSession, refreshToken: String) {
+        dataStore.updateData { it.copy(accessTokens = session.toSavedTokens(), refreshToken = refreshToken) }
+    }
+
+    suspend fun publishRenewedSession(expectedRefreshToken: String, session: AccessTokenSession, refreshToken: String) {
+        dataStore.updateData {
+            if (it.refreshToken == expectedRefreshToken) it.copy(accessTokens = session.toSavedTokens(), refreshToken = refreshToken)
+            else it
+        }
+    }
+
+    private fun AccessTokenSession.toSavedTokens() = TokenSave.AccessTokens(
+        tokens.bangumiAccessToken, tokens.aniAccessToken, tokens.expiresAtMillis,
+    )
+
     /**
      * for settings backup only
      */
@@ -103,7 +120,12 @@ class TokenRepository(
      * for settings restore only
      */
     suspend fun restoreFromTokenSave(save: TokenSave) {
-        dataStore.updateData { save }
+        val previous = dataStore.data.first().accessTokens
+        val incoming = save.accessTokens
+        val sameSession = previous?.aniAccessToken == incoming?.aniAccessToken &&
+                previous?.bangumiAccessToken == incoming?.bangumiAccessToken
+        if (sameSession) dataStore.updateData { save }
+        else onRestoreSession { dataStore.updateData { save } }
     }
 }
 

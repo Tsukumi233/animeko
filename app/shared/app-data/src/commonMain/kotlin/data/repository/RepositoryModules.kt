@@ -72,6 +72,7 @@ import org.koin.core.KoinApplication
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
 import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
+import me.him188.ani.app.data.repository.subject.CollectionCacheAccountGuard
 
 val Scope.aniApiProvider get() = get<AniApiProvider>()
 
@@ -118,7 +119,15 @@ fun KoinApplication.repositoryModules(
         )
     }
 
-    single<TokenRepository> { TokenRepository(getContext().dataStores.tokenStore) }
+    single<TokenRepository> {
+        TokenRepository(getContext().dataStores.tokenStore, onRestoreSession = { publish ->
+            get<CollectionCacheAccountGuard>().changeAccount {
+                database.subjectCollection().deleteAll()
+                publish()
+            }
+        })
+    }
+    single { CollectionCacheAccountGuard() }
 
     single<EpisodePreferencesRepository> {
         EpisodePreferencesRepositoryImpl(
@@ -130,6 +139,7 @@ fun KoinApplication.repositoryModules(
     single<SubjectCollectionRepository> {
         SubjectCollectionRepositoryImpl(
             subjectService = get(),
+            accountGuard = get(),
             subjectCollectionDao = database.subjectCollection(),
 //            characterDao = database.character(),
 //            characterActorDao = database.characterActor(),
@@ -208,6 +218,7 @@ fun KoinApplication.repositoryModules(
     single<EpisodeCollectionRepository> {
         EpisodeCollectionRepository(
             subjectDao = database.subjectCollection(),
+            accountGuard = get(),
             episodeCollectionDao = database.episodeCollection(),
             episodeService = get(),
             animeScheduleRepository = get(),

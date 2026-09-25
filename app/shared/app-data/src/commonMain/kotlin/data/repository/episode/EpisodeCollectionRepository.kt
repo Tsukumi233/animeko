@@ -25,6 +25,7 @@ import me.him188.ani.app.data.persistent.database.dao.SubjectCollectionEntity
 import me.him188.ani.app.data.repository.Repository
 import me.him188.ani.app.data.repository.RepositoryException
 import me.him188.ani.app.data.repository.subject.GetEpisodeTypeFiltersUseCase
+import me.him188.ani.app.data.repository.subject.CollectionCacheAccountGuard
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.app.data.repository.subject.toEpisodeType
 import me.him188.ani.app.data.repository.subject.toUnifiedCollectionType
@@ -50,6 +51,7 @@ class EpisodeCollectionRepository(
     private val getEpisodeTypeFiltersUseCase: GetEpisodeTypeFiltersUseCase,
     defaultDispatcher: CoroutineContext = Dispatchers.Default,
     private val cacheExpiry: Duration = 1.hours,
+    private val accountGuard: CollectionCacheAccountGuard = CollectionCacheAccountGuard(),
 ) : Repository(defaultDispatcher) {
 
     private val subjectCollectionRepository by subjectCollectionRepository
@@ -71,9 +73,10 @@ class EpisodeCollectionRepository(
             if (entity != null) emit(entity.toEpisodeCollectionInfo())
             if (entity == null || entity.isExpired()) {
                 try {
+                    val generation = accountGuard.snapshot()
                     val fetched = episodeService.getEpisodeCollectionById(subjectId, episodeId)
                     if (fetched != null) {
-                        episodeCollectionDao.upsert(fetched.toEntity(subjectId))
+                        accountGuard.commit(generation) { episodeCollectionDao.upsert(fetched.toEntity(subjectId)) }
                     } else if (entity == null) {
                         throw NoSuchElementException("Episode $episodeId not found")
                     }
@@ -149,12 +152,13 @@ class EpisodeCollectionRepository(
      * 设置指定条目的所有剧集为已看.
      */
     suspend fun setAllEpisodesWatched(subjectId: Int) = withContext(defaultDispatcher) {
+        val generation = accountGuard.snapshot()
         val episodeIds = subjectEpisodeCollectionInfosFlow(subjectId)
             .first()
             .map { it.episodeId }
 
         episodeService.setEpisodeCollection(subjectId, episodeIds, UnifiedCollectionType.DONE)
-        episodeCollectionDao.setAllEpisodesWatched(subjectId)
+        accountGuard.commit(generation) { episodeCollectionDao.setAllEpisodesWatched(subjectId) }
     }
 
     suspend fun setEpisodeCollectionType(
@@ -162,6 +166,7 @@ class EpisodeCollectionRepository(
         episodeId: Int,
         collectionType: UnifiedCollectionType,
     ) = withContext(defaultDispatcher) {
+        val generation = accountGuard.snapshot()
         if (subjectCollectionRepository.subjectCollectionFlow(subjectId)
                 .first().collectionType == UnifiedCollectionType.NOT_COLLECTED
         ) {
@@ -169,7 +174,7 @@ class EpisodeCollectionRepository(
 //            subjectCollectionRepository.setSubjectCollectionTypeOrDelete(subjectId, UnifiedCollectionType.DOING)
         }
         episodeService.setEpisodeCollection(subjectId, listOf(episodeId), collectionType)
-        episodeCollectionDao.updateSelfCollectionType(subjectId, episodeId, collectionType)
+        accountGuard.commit(generation) { episodeCollectionDao.updateSelfCollectionType(subjectId, episodeId, collectionType) }
     }
 
     /**
@@ -240,6 +245,7 @@ class EpisodeCollectionRepository(
             }
 
             try {
+                val generation = accountGuard.snapshot()
                 val episodeTypes = getEpisodeTypeFiltersUseCase().first()
                 val episodes = episodeService.getEpisodeCollectionInfosPaged(
                     subjectId,
@@ -249,10 +255,10 @@ class EpisodeCollectionRepository(
                     offset = offset,
                     limit = state.config.pageSize,
                 )
-                episodes.page.filter { it.episodeInfo.type in episodeTypes }.takeIf { it.isNotEmpty() }?.let { list ->
-                    episodeCollectionDao.upsert(
-                        list.map { it.toEntity(subjectId) },
-                    )
+                accountGuard.commit(generation) {
+                    episodes.page.filter { it.episodeInfo.type in episodeTypes }.takeIf { it.isNotEmpty() }?.let { list ->
+                        episodeCollectionDao.upsert(list.map { it.toEntity(subjectId) })
+                    }
                 }
 
                 MediatorResult.Success(endOfPaginationReached = episodes.hasMore)
