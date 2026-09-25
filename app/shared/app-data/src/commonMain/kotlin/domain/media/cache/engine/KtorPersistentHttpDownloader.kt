@@ -9,12 +9,10 @@
 
 package me.him188.ani.app.domain.media.cache.engine
 
-import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.FileSystem
 import kotlinx.io.files.Path
 import me.him188.ani.app.data.persistent.database.dao.HttpCacheDownloadStateDao
@@ -60,35 +58,13 @@ class KtorPersistentHttpDownloader(
     }
 
     /**
-     * Replaces the current in-memory map with data loaded from [dataStore], but does not resume them.
+     * Loads missing tasks from [dao] without network requests or replacing active tasks.
      * To resume downloads, call [resume] for each entry in the restored map.
      */
     private suspend fun restoreStates() {
         val savedList: List<DownloadState> = dao.getAll().first()
-        stateMutex.withLock {
-            val currentMap: MutableMap<DownloadId, DownloadEntry> = LinkedHashMap(savedList.size)
-
-            savedList.forEach { st ->
-                currentMap[st.downloadId] = DownloadEntry(
-                    job = null,
-                    state = st.copy(
-                        status = when (val status = st.status) {
-                            // 恢复时必须将原本的下载中状态设置为 PAUSED, 否则无法 resume.
-                            DownloadStatus.INITIALIZING,
-                            DownloadStatus.DOWNLOADING,
-                            DownloadStatus.MERGING -> DownloadStatus.PAUSED
-
-                            DownloadStatus.PAUSED,
-                            DownloadStatus.COMPLETED,
-                            DownloadStatus.FAILED,
-                            DownloadStatus.CANCELED -> status
-                        },
-                    ),
-                )
-            }
-            _downloadStatesFlow.value = currentMap.toPersistentMap()
-            logger.info { "Restored ${currentMap.size} downloads from DataStore" }
-        }
+        savedList.forEach { restoreState(it) }
+        logger.info { "Restored ${savedList.size} downloads from database" }
     }
 
     override fun onCreateDownloadState(state: DownloadState) {

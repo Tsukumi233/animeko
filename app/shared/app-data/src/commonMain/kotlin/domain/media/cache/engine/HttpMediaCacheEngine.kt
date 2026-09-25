@@ -48,7 +48,6 @@ import me.him188.ani.datasources.api.topic.FileSize.Companion.bytes
 import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.utils.coroutines.IO_
 import me.him188.ani.utils.httpdownloader.DownloadId
-import me.him188.ani.utils.httpdownloader.DownloadOptions
 import me.him188.ani.utils.httpdownloader.DownloadProgress
 import me.him188.ani.utils.httpdownloader.DownloadState
 import me.him188.ani.utils.httpdownloader.DownloadStatus
@@ -113,14 +112,13 @@ class HttpMediaCacheEngine(
         parentContext: CoroutineContext,
     ): MediaCache? {
 
-        logger.info { "Restarting cache '${origin.mediaId}'" }
+        logger.info { "Restoring cache '${origin.mediaId}'" }
         val downloadId = restoredHttpDownloadId(origin, metadata)
 
         // 注意, getState 一般不会返回 null, 除非 downloader 的 persistent datastore 出问题了 (例如文件损坏).
         if (downloader.getState(downloadId) != null) {
-            if (origin.download !is ResourceLocation.SourceResource) resumeDownload(origin, metadata, downloadId, parentContext)
             // Task already exists
-            logger.info { "Resumed download $downloadId" }
+            logger.info { "Restored download $downloadId" }
             return HttpMediaCache(origin, downloadId, metadata, parentContext)
         }
 
@@ -129,12 +127,9 @@ class HttpMediaCacheEngine(
             return null
         }
 
-        logger.info { "Download not found, recreating $downloadId" }
-        downloader.downloadWithId(
-            downloadId = downloadId,
-            persistentState.url,
-            options = DownloadOptions(headers = persistentState.requestHeaders, contentIdentity = persistentState.contentIdentity),
-        )
+        logger.info { "Restoring persisted HTTP task $downloadId" }
+        downloader.restoreState(persistentState)
+        check(downloader.getState(downloadId) != null) { "Failed to restore HTTP download $downloadId" }
         return HttpMediaCache(origin, downloadId, metadata, parentContext)
     }
 
@@ -165,12 +160,10 @@ class HttpMediaCacheEngine(
     ) {
         val state = downloader.getState(id) ?: return
         if (state.status !in listOf(DownloadStatus.PAUSED, DownloadStatus.FAILED)) return
-        if (origin.download is ResourceLocation.SourceResource) {
-            val access = prepareAccess(origin, metadata, EpisodeMetadata(metadata.episodeName, metadata.episodeEp, metadata.episodeSort, metadata.episodeId.toIntOrNull()), parentContext)
-            if (access.refreshable) {
-                check(downloader.refreshRequest(id, access.url, access.options.headers, access.options.contentIdentity)) {
-                    "Download request could not be refreshed"
-                }
+        val access = prepareAccess(origin, metadata, EpisodeMetadata(metadata.episodeName, metadata.episodeEp, metadata.episodeSort, metadata.episodeId.toIntOrNull()), parentContext)
+        if (access.refreshable) {
+            check(downloader.refreshRequest(id, access.url, access.options.headers, access.options.contentIdentity)) {
+                "Download request could not be refreshed"
             }
         }
         downloader.resume(id)

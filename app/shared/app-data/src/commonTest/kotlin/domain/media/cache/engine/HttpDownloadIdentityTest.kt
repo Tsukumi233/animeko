@@ -86,12 +86,15 @@ class HttpDownloadIdentityTest {
         val mediaIdDerived = DownloadId("source-legacy")
         downloader.downloadWithId(mediaIdDerived, "https://example.com/legacy.mp4", DownloadOptions())
         downloader.states[mediaIdDerived] = downloader.states.getValue(mediaIdDerived).copy(status = DownloadStatus.PAUSED)
-        engine.restore(media, metadata, backgroundScope.coroutineContext)
+        val firstRestored = engine.restore(media, metadata, backgroundScope.coroutineContext)
+        assertTrue(downloader.resumed.isEmpty())
+        firstRestored!!.resume()
         assertEquals(mediaIdDerived, downloader.resumed.last())
         engine.createCache(media, metadata, testEpisodeMetadata(1), backgroundScope.coroutineContext)
         val currentId = downloader.states.keys.single { it != mediaIdDerived }
         downloader.states[currentId] = downloader.states.getValue(currentId).copy(status = DownloadStatus.PAUSED)
-        engine.restore(media, metadata, backgroundScope.coroutineContext)
+        val secondRestored = engine.restore(media, metadata, backgroundScope.coroutineContext)
+        secondRestored!!.resume()
         assertEquals(currentId, downloader.resumed.last())
         assertTrue(mediaIdDerived in downloader.states)
     }
@@ -227,6 +230,14 @@ private class FakeDownloader : HttpDownloader {
     override val downloadStatesFlow: Flow<List<DownloadState>> = flowOf(emptyList())
     override fun getProgressFlow(downloadId: DownloadId): Flow<DownloadProgress> = flowOf()
     override suspend fun init() = Unit
+    override suspend fun restoreState(state: DownloadState): Boolean {
+        if (persistedOnly.remove(state.downloadId)) recreated += state.downloadId
+        states[state.downloadId] = state.copy(status = when (state.status) {
+            DownloadStatus.INITIALIZING, DownloadStatus.DOWNLOADING, DownloadStatus.MERGING -> DownloadStatus.PAUSED
+            else -> state.status
+        })
+        return true
+    }
     override suspend fun download(url: String, options: DownloadOptions): DownloadId = error("unused")
     override suspend fun downloadWithId(downloadId: DownloadId, url: String, options: DownloadOptions): DownloadState {
         if (persistedOnly.remove(downloadId)) recreated += downloadId

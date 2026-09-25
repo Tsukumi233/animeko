@@ -53,6 +53,12 @@ interface HttpDownloader : AutoCloseable {
      */
     suspend fun init()
 
+    /** Restores one persisted task without network access or replacing an existing task.
+     * Active persisted statuses become paused; completed files remain completed.
+     * Returns true when inserted, false when this ID is already present.
+     */
+    suspend fun restoreState(state: DownloadState): Boolean = throw UnsupportedOperationException("State restoration is not supported")
+
     /**
      * Starts a new download and returns its initial download state.
      *
@@ -84,7 +90,8 @@ interface HttpDownloader : AutoCloseable {
      * Replaces access credentials on a paused or failed task without changing its ID.
      * Completed segments require the same immutable content version supplied at creation.
      * Returns false if absent, running, or terminal. Identity/layout mismatch throws and leaves
-     * the saved request unchanged. Call [resume] after successful replacement.
+     * the saved request and bytes unchanged, with a restart instruction in the task error.
+     * Call [resume] after successful replacement.
      */
     suspend fun refreshRequest(
         downloadId: DownloadId,

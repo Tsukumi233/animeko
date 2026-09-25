@@ -42,7 +42,11 @@ class ResolverHttpDownloadCapability(
                 headers = options.headers + ("Accept" to "application/octet-stream"),
             )
         }
-        return PreparedDownloadAccess.Http(data.uri, options)
+        val refreshable = when (request.media.download) {
+            is ResourceLocation.WebVideo, is ResourceLocation.MagnetLink, is ResourceLocation.HttpTorrentFile -> true
+            else -> false
+        }
+        return PreparedDownloadAccess.Http(data.uri, options, refreshable)
     }
 }
 

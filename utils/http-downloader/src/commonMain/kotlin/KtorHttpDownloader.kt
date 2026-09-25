@@ -145,6 +145,16 @@ open class KtorHttpDownloader(
 
     protected val stateMutex = Mutex()
 
+    override suspend fun restoreState(state: DownloadState): Boolean = stateMutex.withLock {
+        if (state.downloadId in _downloadStatesFlow.value) return@withLock false
+        val restored = state.copy(status = when (state.status) {
+            INITIALIZING, DOWNLOADING, MERGING -> PAUSED
+            else -> state.status
+        })
+        _downloadStatesFlow.update { put(state.downloadId, DownloadEntry(null, restored)) }
+        true
+    }
+
     override suspend fun download(
         url: String,
         options: DownloadOptions,
@@ -368,41 +378,49 @@ open class KtorHttpDownloader(
             entry.state
         }
         val hasDownloaded = snapshot.segments.any { it.isDownloaded }
-        require(!hasDownloaded || (!contentIdentity.isNullOrBlank() && contentIdentity == snapshot.contentIdentity)) {
-            "Content identity changed or is unavailable; cached segments cannot be reused"
+        suspend fun requireReusable(condition: Boolean, reason: String) {
+            if (condition) return
+            val message = "$reason. Remove this download and create it again; saved segments cannot be reused safely."
+            updateState(downloadId) { current ->
+                if (current == snapshot) current.copy(error = DownloadError(DownloadErrorCode.UNEXPECTED_ERROR, message))
+                else current
+            }
+            emitProgress(downloadId)
+            throw IllegalArgumentException(message)
         }
+        requireReusable(!hasDownloaded || (!contentIdentity.isNullOrBlank() && contentIdentity == snapshot.contentIdentity),
+            "Content identity changed or is unavailable")
         val options = DownloadOptions(headers = headers, contentIdentity = contentIdentity)
         val playlist = if (snapshot.mediaType == MediaType.M3U8) resolveM3u8MediaPlaylist(url, options) else null
         val segments = if (playlist != null) {
-            require(playlist.playlist.isEndlist) { "Refreshing live HLS playlists is not supported" }
+            requireReusable(playlist.playlist.isEndlist, "Refreshing live HLS playlists is not supported")
             if (hasDownloaded) {
                 val old = m3u8Parser.parseResolvedMediaPlaylist(
                     readTextFromFile(baseSaveDir.resolve(snapshot.relativeSegmentCacheDir).resolve(UPSTREAM_PLAYLIST_FILE_NAME)),
                     snapshot.url,
                 ).playlist
-                require(old.isEndlist && old.version == playlist.playlist.version &&
+                requireReusable(old.isEndlist && old.version == playlist.playlist.version &&
                     old.tags == playlist.playlist.tags &&
-                    old.segments.map { it.byteRange } == playlist.playlist.segments.map { it.byteRange }
-                ) { "HLS playlist layout changed" }
+                    old.segments.map { it.byteRange } == playlist.playlist.segments.map { it.byteRange },
+                    "HLS playlist layout changed")
             }
             playlist.playlist.toSegments { Path(snapshot.relativeSegmentCacheDir).resolve(it).toString() }
         } else {
             val probe = probeRangeSupport(url, options) ?: error("Unable to validate refreshed download request")
             val expectedLength = snapshot.segments.sumOf { it.byteSize.coerceAtLeast(0) }
             if (hasDownloaded) {
-                require(probe.first == expectedLength) { "Content length changed" }
-                require(snapshot.segments.none { it.rangeStart != null } || probe.second) {
-                    "Refreshed request does not support byte ranges"
-                }
+                requireReusable(probe.first == expectedLength, "Content length changed")
+                requireReusable(snapshot.segments.none { it.rangeStart != null } || probe.second,
+                    "Refreshed request does not support byte ranges")
             }
             snapshot.segments.map { it.copy(url = url) }
         }
-        require(!hasDownloaded || (snapshot.segments.size == segments.size &&
+        requireReusable(!hasDownloaded || (snapshot.segments.size == segments.size &&
             snapshot.segments.zip(segments).all { (old, fresh) ->
                 old.index == fresh.index && old.rangeStart == fresh.rangeStart && old.rangeEnd == fresh.rangeEnd &&
                     old.durationSeconds == fresh.durationSeconds && old.isDiscontinuity == fresh.isDiscontinuity &&
                     old.encryption?.method == fresh.encryption?.method && old.encryption?.iv == fresh.encryption?.iv
-            })) { "Segment layout changed; cached segments cannot be reused" }
+            }), "Segment layout changed")
         val refreshed = snapshot.copy(
             url = url,
             requestHeaders = headers,

@@ -63,7 +63,8 @@ class HttpRequestRefreshTest {
                 assertFailsWith<IllegalArgumentException> {
                     downloader.refreshRequest(old.downloadId, NEW_URL, emptyMap(), identity)
                 }
-                assertEquals(old, downloader.getState(old.downloadId))
+                assertEquals(old, downloader.getState(old.downloadId)!!.copy(error = null))
+                assertTrue(downloader.getState(old.downloadId)!!.error!!.technicalMessage!!.contains("create it again"))
             }
         }
     }
@@ -77,7 +78,7 @@ class HttpRequestRefreshTest {
                 assertFailsWith<IllegalArgumentException> {
                     downloader.refreshRequest(old.downloadId, url, emptyMap(), "v1")
                 }
-                assertEquals(old, downloader.getState(old.downloadId))
+                assertEquals(old, downloader.getState(old.downloadId)!!.copy(error = null))
             }
         }
     }
@@ -121,7 +122,7 @@ class HttpRequestRefreshTest {
             assertFailsWith<IllegalArgumentException> {
                 downloader.refreshRequest(old.downloadId, "https://test/changed.m3u8", emptyMap(), "v1")
             }
-            assertEquals(old, downloader.getState(old.downloadId))
+            assertEquals(old, downloader.getState(old.downloadId)!!.copy(error = null))
             assertTrue(downloader.refreshRequest(old.downloadId, "https://test/new.m3u8", emptyMap(), "v1"))
             val fresh = downloader.getState(old.downloadId)!!
             assertEquals("https://test/seg.ts?new", fresh.segments.single().url)
