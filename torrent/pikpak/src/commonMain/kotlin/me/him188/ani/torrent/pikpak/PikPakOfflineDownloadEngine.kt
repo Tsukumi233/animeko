@@ -21,8 +21,6 @@ import io.github.nihildigit.pikpak.getFile
 import io.github.nihildigit.pikpak.getOrCreateDeepFolderId
 import io.github.nihildigit.pikpak.listFiles
 import io.github.nihildigit.pikpak.listOfflineTasks
-import io.ktor.client.HttpClient
-import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,7 +43,6 @@ import me.him188.ani.torrent.offline.ResolvedMedia
 import me.him188.ani.utils.io.DigestAlgorithm
 import me.him188.ani.utils.io.digest
 import me.him188.ani.utils.ktor.ScopedHttpClient
-import me.him188.ani.utils.ktor.UnsafeScopedHttpClientApi
 import me.him188.ani.utils.logging.debug
 import me.him188.ani.utils.logging.info
 import me.him188.ani.utils.logging.logger
@@ -77,7 +74,7 @@ data class PikPakCredentials(
  * captcha, rate limiting and retry; this class owns the offline-task
  * orchestration policy (when to poll, season-pack child pick, failure cleanup).
  *
- * Pattern: per-credentials [PikPakClient] cached in [clientEntry]. Recreated
+ * Account access is shared with drive browsing through [PikPakAccountProvider]. Clients are recreated
  * when credentials change, so a re-login after the user edits settings happens
  * naturally through the StateFlow pre-warm side-effect.
  */
@@ -96,6 +93,7 @@ class PikPakOfflineDownloadEngine(
      * eviction entirely.
      */
     private val slotQueueLength: () -> Int = { 1 },
+    private val accountProvider: PikPakAccountProvider = PikPakAccountProvider(scopedHttpClient, credentials, sessionStore),
 ) : OfflineDownloadEngine {
 
     companion object {
@@ -115,17 +113,6 @@ class PikPakOfflineDownloadEngine(
     override val isSupported: StateFlow<Boolean> = credentials
         .map { it != null && it.isValid }
         .stateIn(scope, SharingStarted.Eagerly, initialValue = credentials.value?.isValid == true)
-
-    // Borrow the underlying HttpClient for the lifetime of this engine. The
-    // SDK needs a stable HttpClient to hand to its OkHttp/Darwin engine, and
-    // ScopedHttpClient's borrowForever() is the documented escape hatch for
-    // that exact scenario. The engine is a process-singleton (Koin `single`),
-    // so no leak concern.
-    @OptIn(UnsafeScopedHttpClientApi::class)
-    private val sharedHttp: HttpClient = scopedHttpClient.borrowForever().client
-
-    @Volatile
-    private var clientEntry: Pair<PikPakCredentials, PikPakClient>? = null
 
     // Serialises [resolve] across concurrent callers. The engine is a single
     // per-process Koin instance and its slot lives on a shared PikPak folder
@@ -343,17 +330,9 @@ class PikPakOfflineDownloadEngine(
         }
     }
 
-    private fun clientFor(creds: PikPakCredentials): PikPakClient {
-        val current = clientEntry
-        if (current != null && current.first == creds) return current.second
-        val fresh = PikPakClient(
-            account = creds.username,
-            password = creds.password,
-            sessionStore = sessionStore,
-            httpClient = sharedHttp,
-        )
-        clientEntry = creds to fresh
-        return fresh
+    private suspend fun clientFor(creds: PikPakCredentials): PikPakClient = accountProvider.withClient { _, client ->
+        if (client.account != creds.username) throw PikPakAccountChangedException()
+        client
     }
 
     /**

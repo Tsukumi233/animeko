@@ -37,10 +37,14 @@ class PikPakSessionStoreAdapter(
     private val readRefreshToken: () -> String,
     private val writeRefreshToken: suspend (String) -> Unit,
     private val onSessionSaved: suspend () -> Unit = {},
+    /** Reads only the token stored for this SDK account, returning empty for a different account. */
+    private val readRefreshTokenForAccount: ((account: String) -> String)? = null,
+    /** Checks the account and writes the token atomically in the application settings transaction. */
+    private val writeRefreshTokenForAccount: (suspend (account: String, token: String) -> Unit)? = null,
 ) : SessionStore {
 
     override suspend fun load(account: String): Session? {
-        val rt = readRefreshToken()
+        val rt = readRefreshTokenForAccount?.invoke(account) ?: readRefreshToken()
         if (rt.isEmpty()) return null
         return Session(
             accessToken = "",
@@ -51,11 +55,16 @@ class PikPakSessionStoreAdapter(
     }
 
     override suspend fun save(account: String, session: Session) {
-        writeRefreshToken(session.refreshToken)
+        writeToken(account, session.refreshToken)
         onSessionSaved()
     }
 
     override suspend fun clear(account: String) {
-        writeRefreshToken("")
+        writeToken(account, "")
+    }
+
+    private suspend fun writeToken(account: String, token: String) {
+        val scopedWrite = writeRefreshTokenForAccount
+        if (scopedWrite != null) scopedWrite(account, token) else writeRefreshToken(token)
     }
 }

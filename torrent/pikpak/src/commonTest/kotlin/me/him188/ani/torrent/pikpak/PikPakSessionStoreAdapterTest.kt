@@ -9,6 +9,7 @@
 
 package me.him188.ani.torrent.pikpak
 
+import io.github.nihildigit.pikpak.Session
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,6 +24,29 @@ import kotlin.test.assertNull
  * plus a small synthesis step on load().
  */
 class PikPakSessionStoreAdapterTest {
+
+    @Test
+    fun `account scoped callbacks prevent an old account from reading or replacing a token`() = runTest {
+        var currentAccount = "first"
+        var refreshToken = "first-token"
+        val adapter = PikPakSessionStoreAdapter(
+            readRefreshToken = { error("Unscoped read is not allowed") },
+            writeRefreshToken = { error("Unscoped write is not allowed") },
+            readRefreshTokenForAccount = { account -> if (account == currentAccount) refreshToken else "" },
+            writeRefreshTokenForAccount = { account, token ->
+                if (account == currentAccount) refreshToken = token
+            },
+        )
+        assertEquals("first-token", adapter.load("first")?.refreshToken)
+        currentAccount = "second"
+        refreshToken = "second-token"
+        assertNull(adapter.load("first"))
+        adapter.save("first", Session("access", "late-first-token", "first-id", 123L))
+        adapter.clear("first")
+        assertEquals("second-token", refreshToken)
+        adapter.save("second", Session("access", "new-second-token", "second-id", 123L))
+        assertEquals("new-second-token", refreshToken)
+    }
 
     private class FakeStore(var refreshToken: String = "") {
         val adapter = PikPakSessionStoreAdapter(
