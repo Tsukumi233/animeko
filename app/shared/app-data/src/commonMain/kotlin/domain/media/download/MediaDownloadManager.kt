@@ -10,6 +10,11 @@
 package me.him188.ani.app.domain.media.download
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
@@ -46,6 +51,10 @@ class MediaDownloadManager(
     val storages: List<MediaCacheStorage>,
     override val backgroundScope: CoroutineScope,
 ) : HasBackgroundScope {
+    private data class CreationKey(val mediaId: String, val subjectId: String, val episodeId: String)
+    private val creationLock = Mutex()
+    private val creating = mutableMapOf<CreationKey, CompletableDeferred<MediaCache>>()
+
     /**
      * 每个存储都给出首个列表后才有首个元素. 存储在启动时异步恢复记录, 恢复完成前列表可能为空.
      * 相同 id 的记录只保留注册顺序靠前的一个; 离开列表的实例在此 [MediaDownload.close].
@@ -126,12 +135,39 @@ class MediaDownloadManager(
 
     /**
      * 在 [storage] 中创建并持久化下载; 任一存储已有同一资源同一集的记录时直接返回该记录. 传输由引擎异步进行.
+     * 同一资源与剧集的并发调用等待同一个持久化结果；准备占位项不代表创建成功。不同下载可以并行准备。
      */
     suspend fun createDownload(
         media: Media,
         metadata: MediaCacheMetadata,
         episodeMetadata: EpisodeMetadata,
         storage: MediaCacheStorage = defaultStorageFor(media),
+    ): MediaCache {
+        val key = CreationKey(media.mediaId, metadata.subjectId, metadata.episodeId)
+        val result = CompletableDeferred<MediaCache>()
+        val pending = creationLock.withLock { creating.getOrPut(key) { result } }
+        if (pending !== result) {
+            return pending.await().also { it.requireCompatibleFileSelection(media, metadata.episodeId) }
+        }
+        try {
+            val cache = createPersistedDownload(media, metadata, episodeMetadata, storage)
+            result.complete(cache)
+            return cache
+        } catch (e: Throwable) {
+            result.completeExceptionally(e)
+            throw e
+        } finally {
+            withContext(NonCancellable) {
+                creationLock.withLock { creating.remove(key) }
+            }
+        }
+    }
+
+    private suspend fun createPersistedDownload(
+        media: Media,
+        metadata: MediaCacheMetadata,
+        episodeMetadata: EpisodeMetadata,
+        storage: MediaCacheStorage,
     ): MediaCache {
         for (other in storages) {
             other.listFlow.first().firstOrNull { it.isSameMediaAndEpisode(media, metadata) }?.let { existing ->
