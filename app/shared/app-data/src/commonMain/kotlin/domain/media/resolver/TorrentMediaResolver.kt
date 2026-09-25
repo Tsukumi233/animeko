@@ -68,6 +68,7 @@ class TorrentMediaResolver(
                             engineAccess = engineAccess,
                             encodedTorrentInfo = downloader.fetchTorrent(location.uri),
                             episodeMetadata = episode,
+                            selectedFilePath = media.association?.selectedFilePaths?.get(episode.episodeId?.toString()),
                             extraFiles = media.extraFiles.toMediampMediaExtraFiles(),
                         )
                     } catch (e: FetchTorrentTimeoutException) {
@@ -122,7 +123,11 @@ class TorrentMediaResolver(
             episodeSort: EpisodeSort,
             episodeEp: EpisodeSort?,
             videoExtensions: Set<String> = DEFAULT_VIDEO_EXTENSIONS,
+            selectedFilePath: String? = null,
         ): T? {
+            if (selectedFilePath != null) {
+                return entries.singleOrNull { it.getPath().replace('\\', '/') == selectedFilePath.replace('\\', '/') }
+            }
             // Filter by file extension
             val videos = entries
                 .filterTo(ArrayList(entries.size)) {
@@ -197,6 +202,7 @@ class TorrentMediaDataProvider(
     private val engineAccess: TorrentEngineAccess,
     private val encodedTorrentInfo: EncodedTorrentInfo,
     private val episodeMetadata: EpisodeMetadata,
+    private val selectedFilePath: String? = null,
     override val extraFiles: org.openani.mediamp.source.MediaExtraFiles,
 ) : MediaDataProvider<TorrentMediaData>, TorrentBackedMediaDataProvider {
     @OptIn(ExperimentalStdlibApi::class)
@@ -229,10 +235,11 @@ class TorrentMediaDataProvider(
 
                 TorrentMediaResolver.selectVideoFileEntry(
                     files,
-                    { fileName },
+                    { pathInTorrent },
                     listOf(episodeMetadata.title),
                     episodeSort = episodeMetadata.sort,
                     episodeEp = episodeMetadata.ep,
+                    selectedFilePath = selectedFilePath,
                 )?.also {
                     logger.info {
                         "TorrentVideoSource selected file: ${it.fileName}"

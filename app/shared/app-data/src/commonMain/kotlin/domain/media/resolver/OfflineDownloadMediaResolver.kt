@@ -72,6 +72,7 @@ class OfflineDownloadMediaResolver(
             if (episode.title.isNotBlank()) add(episode.title)
             if (media.originalTitle.isNotBlank()) add(media.originalTitle)
         }
+        val selectedFilePath = media.association?.selectedFilePaths?.get(episode.episodeId?.toString())
         val pickVideoFile: (List<String>) -> String? = { names ->
             TorrentMediaResolver.selectVideoFileEntry(
                 entries = names,
@@ -79,6 +80,7 @@ class OfflineDownloadMediaResolver(
                 episodeTitles = episodeTitles,
                 episodeSort = episode.sort,
                 episodeEp = episode.ep,
+                selectedFilePath = selectedFilePath,
             )
         }
 
@@ -105,6 +107,12 @@ class OfflineDownloadMediaResolver(
             return handleEngineFailure(media, episode, e, ResolutionFailures.NETWORK_ERROR)
         } catch (e: Throwable) {
             return handleEngineFailure(media, episode, e, ResolutionFailures.ENGINE_ERROR)
+        }
+
+        if (selectedFilePath != null && resolved.fileName?.replace('\\', '/') != selectedFilePath.replace('\\', '/')) {
+            return handleEngineFailure(media, episode,
+                OfflineDownloadRejectedException("The cloud result cannot verify the selected torrent path"),
+                ResolutionFailures.NO_MATCHING_RESOURCE)
         }
 
         return HttpStreamingMediaDataProvider(
