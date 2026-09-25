@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
@@ -45,7 +46,6 @@ import me.him188.ani.datasources.api.EpisodeSort
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
 import me.him188.ani.datasources.api.PackedDate
-import me.him188.ani.datasources.api.isLocalCache
 import me.him188.ani.datasources.api.source.MediaFetchRequest
 import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.utils.coroutines.childScope
@@ -200,7 +200,7 @@ class DownloadRequestSession internal constructor(
      */
     fun select(episodeId: Int, media: Media): Boolean {
         val current = state.value as? DownloadRequestState.AwaitingSelection ?: return false
-        if (current.episodeId != episodeId) return false
+        if (current.episodeId != episodeId || !supportsDownload(media)) return false
         return current.choice.complete(media)
     }
 
@@ -258,7 +258,7 @@ class DownloadRequestSession internal constructor(
      */
     private suspend fun processEpisode(episodeId: Int, pending: List<Int>): Set<Int> {
         mutableState.value = DownloadRequestState.Preparing(episodeId, pending)
-        val collection = subjects.subjectCollectionFlow(subjectId).first()
+        val collection = subjects.librarySubjectCollectionFlow(subjectId).first()
         val subject = collection.subjectInfo
         val episodes = collection.episodes.map { it.episodeInfo }
         val episode = episodes.firstOrNull { it.episodeId == episodeId }
@@ -302,6 +302,7 @@ class DownloadRequestSession internal constructor(
                 for ((target, media) in batch) {
                     val pendingNow = batchIds.filter { it !in handled } + pending.filter { it !in batchIds }
                     setStateUnlessFinished(DownloadRequestState.Creating(target.episodeId, pendingNow))
+                    check(supportsDownload(media)) { "No download capability for ${media.mediaId}" }
                     addDownload(subject, target, media, MediaCacheMetadata(MediaFetchRequest.create(subject, target)))
                     created += ExistingDownload(media, target.episodeId)
                     handled += target.episodeId
@@ -310,6 +311,8 @@ class DownloadRequestSession internal constructor(
             }
         }.await().getOrThrow()
     }
+
+    private fun supportsDownload(media: Media): Boolean = downloadManager.storages.any { it.engine.supports(media) }
 
     private suspend fun existingDownloads(): List<ExistingDownload> =
         downloadManager.downloadsForSubject(subjectId).first().mapNotNull { download ->
@@ -330,7 +333,8 @@ class DownloadRequestSession internal constructor(
         existing: List<ExistingDownload>,
     ): List<Pair<EpisodeInfo, Media>> = coroutineScope {
         val fetchSession = sources.createFetchFetchSession(flowOf(MediaFetchRequest.create(subject, episode, episodes)))
-        val selector = selectors.create(subjectId, episodeId, fetchSession.cumulativeResults, fetchRequest = fetchSession.latestRequest)
+        val downloadableResults = fetchSession.cumulativeResults.map { candidates -> candidates.filter(::supportsDownload) }
+        val selector = selectors.create(subjectId, episodeId, downloadableResults, fetchRequest = fetchSession.latestRequest)
         // 保持查询进行, 与弹窗是否可见无关.
         launch { fetchSession.cumulativeResults.collect() }
         // 记录弹窗内的偏好变更, 确定资源后一并保存.
@@ -351,7 +355,7 @@ class DownloadRequestSession internal constructor(
                 val chosenNames = chosen.lineSubjectNames()
                 val group = selector.subjectCandidates.first()
                     .mapNotNull { it.result }
-                    .filter { !it.isLocalCache() && it.isSameLineAs(chosen, chosenNames, subject.allNames) }
+                    .filter { supportsDownload(it) && it.isSameLineAs(chosen, chosenNames, subject.allNames) }
                 // 还没上映的集 (发起下载的那一集除外) 不规划: 整季合集会把它们算作覆盖, 但种子里还没有对应文件.
                 val plannable = episodes.filter { it.episodeId == episodeId || it.isAired() }
                 val preview = BatchDownloadPlanner.plan(plannable, group, existing, pinned = chosen, pinnedEpisodeId = episodeId)

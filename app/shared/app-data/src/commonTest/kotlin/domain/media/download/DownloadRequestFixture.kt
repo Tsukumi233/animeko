@@ -23,6 +23,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -45,6 +46,8 @@ import me.him188.ani.app.data.repository.subject.OfflineSubjectDisplayInfo
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.app.domain.media.TestMediaList
 import me.him188.ani.app.domain.media.cache.MediaCache
+import me.him188.ani.app.domain.media.cache.engine.MediaCacheEngine
+import me.him188.ani.app.domain.media.cache.engine.DummyMediaCacheEngine
 import me.him188.ani.app.domain.media.cache.TestMediaCache
 import me.him188.ani.app.domain.media.fetch.CompletedConditions
 import me.him188.ani.app.domain.media.fetch.MediaFetchSession
@@ -218,7 +221,11 @@ internal class DownloadRequestFixture(
 
     private var currentEpisodeId = 0
 
-    val storage = DownloadTestStorage(mediaSourceId = STORAGE_ID)
+    var downloadSupported: (Media) -> Boolean = { true }
+    var hiddenEpisodeIds: Set<Int> = emptySet()
+    val storage = DownloadTestStorage(engine = object : MediaCacheEngine by DummyMediaCacheEngine(STORAGE_ID) {
+        override fun supports(media: Media): Boolean = downloadSupported(media)
+    }, mediaSourceId = STORAGE_ID)
     val downloadManager = MediaDownloadManager(listOf(storage), applicationScope)
     val factory = DownloadRequestSessionFactory(
         Subjects(), Preferences(), Sources(), Selectors(), downloadManager, AddDownload(),
@@ -253,7 +260,10 @@ internal class DownloadRequestFixture(
     }
 
     private inner class Subjects : SubjectCollectionRepository() {
-        override fun subjectCollectionFlow(subjectId: Int): Flow<SubjectCollectionInfo> = flow {
+        override fun subjectCollectionFlow(subjectId: Int): Flow<SubjectCollectionInfo> =
+            librarySubjectCollectionFlow(subjectId).map { it.copy(episodes = it.episodes.filter { episode -> episode.episodeId !in hiddenEpisodeIds }) }
+
+        override fun librarySubjectCollectionFlow(subjectId: Int): Flow<SubjectCollectionInfo> = flow {
             subjectLoads++
             prepareGate?.await()
             subjectFailure?.let { throw it }

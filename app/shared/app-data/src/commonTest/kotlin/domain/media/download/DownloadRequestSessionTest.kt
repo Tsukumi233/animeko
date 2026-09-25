@@ -22,17 +22,66 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import me.him188.ani.app.domain.media.TestMediaList
 import me.him188.ani.datasources.api.EpisodeSort
+import me.him188.ani.datasources.api.EpisodeType
+import me.him188.ani.datasources.api.source.MediaSourceKind
+import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.datasources.api.PackedDate
 import me.him188.ani.datasources.api.topic.EpisodeRange
 import me.him188.ani.utils.platform.annotations.TestOnly
 
 class DownloadRequestSessionTest {
     private val media = TestMediaList.first()
+
+    @Test
+    fun `unsupported local file is absent from candidates and direct submission is rejected`() = withFixture {
+        val local = media.copy(mediaId = "local", kind = MediaSourceKind.LocalFile,
+            download = ResourceLocation.LocalFile("/video.mp4"))
+        downloadSupported = { it.mediaId != local.mediaId }
+        mediaListFor = { listOf(local, media) }
+        val session = create(listOf(1))
+        session.start()
+        testScope.runCurrent()
+        val awaiting = assertIs<DownloadRequestState.AwaitingSelection>(session.state.value)
+        assertFalse(awaiting.selector.subjectCandidates.first().any { it.result?.mediaId == local.mediaId })
+        assertFalse(session.select(1, local))
+        assertSame(awaiting, session.state.value)
+        assertTrue(created.isEmpty())
+        assertTrue(session.select(1, media))
+    }
+
+    @Test
+    fun `capability removal after selection rejects persistence`() = withFixture {
+        val session = create(listOf(1))
+        session.start()
+        testScope.runCurrent()
+        assertTrue(session.select(1, media))
+        downloadSupported = { false }
+        testScope.runCurrent()
+        assertTrue(created.isEmpty())
+        assertIs<IllegalStateException>(assertIs<DownloadRequestState.Finished>(session.state.value).error)
+    }
+
+    @Test
+    fun `explicit hidden special episode uses full library metadata`() = withFixture {
+        val special = subject.episodes.first().let { it.copy(episodeInfo = it.episodeInfo.copy(type = EpisodeType.SP, sort = EpisodeSort("SP1"))) }
+        subject = subject.copy(episodes = listOf(special))
+        hiddenEpisodeIds = setOf(special.episodeId)
+        val session = create(listOf(special.episodeId))
+        session.start()
+        testScope.runCurrent()
+        assertIs<DownloadRequestState.AwaitingSelection>(session.state.value)
+        assertTrue(session.select(special.episodeId, media))
+        testScope.runCurrent()
+        assertEquals(DownloadRequestState.Finished(), session.state.value)
+        assertEquals(special.episodeInfo, created.single().episode)
+        assertEquals(EpisodeSort("SP1"), created.single().metadata.episodeSort)
+    }
 
     @Test
     fun `construction does no work until start is called`() = withFixture {
