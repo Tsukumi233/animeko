@@ -73,10 +73,11 @@ data class EpisodeMetadata(
     val title: String,
     val ep: EpisodeSort?,
     val sort: EpisodeSort,
+    val episodeId: Int? = null,
 )
 
 fun EpisodeInfo.toEpisodeMetadata(): EpisodeMetadata {
-    return EpisodeMetadata(nameCn, ep, sort)
+    return EpisodeMetadata(nameCn, ep, sort, episodeId)
 }
 
 class UnsupportedMediaException(
