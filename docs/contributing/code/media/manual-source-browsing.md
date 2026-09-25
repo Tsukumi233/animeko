@@ -17,3 +17,11 @@ HTTP 错误与缺少预期列表结构的响应作为失败传播，正常空频
 `TorrentMediaSourceReferences` 将 BT 发布条目标记为 `TORRENT` 容器，保存原始 `Media` 和 `mediaId`。
 引用只接受磁力链接或长期 torrent 下载 URL，不保存播放器临时 URL；解析时验证来源、资源 ID 和版本。
 种子文件枚举由下载/种子层提供，不能将发布条目本身伪装成已选中的视频文件。
+
+`TorrentResourceBrowser` 在 app-data 中将发布引用展开为文件列表。列表携带原始发布引用与 `Media`，
+每个文件保留完整 `pathInTorrent`、名称、长度和视频类型提示；同名文件使用完整路径区分。
+关联时继续把发布引用传给来源工厂，将所选路径单独写入剧集关联，不修改发布的 `mediaId`。
+枚举使用 `TorrentEngineAccess` 保持 Android 服务连接，获取 metadata 会话后只读取文件信息，
+不创建或恢复文件下载句柄。成功、失败与取消均释放服务请求，并在不可取消的清理阶段调用 `closeIfNotInUse`；
+引擎、下载器与仍被播放或下载使用的种子任务继续由既有模块管理。
+元数据等待受超时控制，完整路径重复或信息缺失作为失败返回，不猜测用户选择。
