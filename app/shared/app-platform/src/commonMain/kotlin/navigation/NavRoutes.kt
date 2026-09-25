@@ -10,7 +10,7 @@
 package me.him188.ani.app.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.runtime.Composable
@@ -19,7 +19,7 @@ import androidx.compose.runtime.Stable
 import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 import me.him188.ani.app.ui.lang.Lang
-import me.him188.ani.app.ui.lang.main_screen_page_cache_management
+import me.him188.ani.app.ui.lang.resource_title
 import me.him188.ani.app.ui.lang.main_screen_page_collection
 import me.him188.ani.app.ui.lang.main_screen_page_exploration
 import org.jetbrains.compose.resources.stringResource
@@ -209,7 +209,7 @@ enum class SettingsTab {
 fun MainScreenPage.getIcon() = when (this) {
     MainScreenPage.Exploration -> Icons.Rounded.TravelExplore
     MainScreenPage.Collection -> Icons.Rounded.Star
-    MainScreenPage.CacheManagement -> Icons.Rounded.DownloadDone
+    MainScreenPage.CacheManagement -> Icons.Rounded.FolderOpen
 }
 
 @Stable
@@ -217,5 +217,5 @@ fun MainScreenPage.getIcon() = when (this) {
 fun MainScreenPage.getText(): String = when (this) {
     MainScreenPage.Exploration -> stringResource(Lang.main_screen_page_exploration)
     MainScreenPage.Collection -> stringResource(Lang.main_screen_page_collection)
-    MainScreenPage.CacheManagement -> stringResource(Lang.main_screen_page_cache_management)
+    MainScreenPage.CacheManagement -> stringResource(Lang.resource_title)
 }

@@ -76,6 +76,8 @@ import me.him188.ani.app.ui.exploration.ExplorationPageViewModel
 import me.him188.ani.app.ui.download.DownloadManagementScreen
 import me.him188.ani.app.ui.download.DownloadManagementViewModel
 import me.him188.ani.app.ui.download.createDownloadManagementViewModel
+import me.him188.ani.app.ui.resource.ResourceLibraryScreen
+import me.him188.ani.app.ui.resource.createResourceLibraryViewModel
 import me.him188.ani.app.ui.exploration.ExplorationScreen
 import me.him188.ani.app.ui.foundation.LocalPlatform
 import me.him188.ani.app.ui.foundation.animation.LocalAniMotionScheme
@@ -366,16 +368,25 @@ private fun MainScreenNavigationLayout(
                     }
 
                     MainScreenPage.CacheManagement -> {
-                        DownloadManagementScreen(
-                            downloadManagementViewModel,
-                            selfInfo = selfInfo,
-                            onPlay = { navigator.navigateEpisodeDetails(it.subjectId, it.episodeId) },
-                            onNavigateCacheDetail = { navigator.navigateCacheDetails(it) },
-                            onClickLogin = onLogin,
+                        val resourceViewModel = viewModel { createResourceLibraryViewModel() }
+                        ResourceLibraryScreen(
+                            resourceViewModel,
+                            onPlay = { subjectId, episodeId -> navigator.navigateEpisodeDetails(subjectId, episodeId) },
+                            onSettings = { navigator.navigateSettings(SettingsTab.MEDIA_SOURCE) },
                             modifier = Modifier.fillMaxSize(),
-                            navigationIcon = { },
                             windowInsets = pageWindowInsets,
-                        )
+                        ) {
+                            DownloadManagementScreen(
+                                downloadManagementViewModel,
+                                selfInfo = selfInfo,
+                                onPlay = { navigator.navigateEpisodeDetails(it.subjectId, it.episodeId) },
+                                onNavigateCacheDetail = { navigator.navigateCacheDetails(it) },
+                                onClickLogin = onLogin,
+                                modifier = Modifier.fillMaxSize(),
+                                navigationIcon = { },
+                                windowInsets = WindowInsets(0),
+                            )
+                        }
                     }
                 }
             }

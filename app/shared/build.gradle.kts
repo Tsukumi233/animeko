@@ -89,6 +89,8 @@ kotlin {
         api(libs.compose.lifecycle.viewmodel.navigation3)
         api(libs.compose.material3.adaptive.navigation.suite)
         implementation(libs.compose.components.resources)
+        implementation(libs.filekit.dialogs)
+        implementation(libs.filekit.dialogs.compose)
         implementation(projects.app.shared.reorderable)
 
         // Data sources
