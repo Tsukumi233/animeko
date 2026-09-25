@@ -9,6 +9,7 @@
 
 package me.him188.ani.app.platform
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -52,6 +53,11 @@ abstract class AniComponentActivity : ComponentActivity() {
     private val requestPermissionLock = Mutex()
 
     private val requestExternalDocumentTreeHandler: AtomicRef<((Uri?) -> Unit)?> = atomic(null)
+    private val requestExternalDocumentHandler: AtomicRef<((Uri?) -> Unit)?> = atomic(null)
+    private val requestExternalDocumentLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            requestExternalDocumentHandler.value?.invoke(uri)
+        }
     private val requestExternalDocumentTreeLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             val handler by requestExternalDocumentTreeHandler
@@ -88,6 +94,21 @@ abstract class AniComponentActivity : ComponentActivity() {
             res.await()
         } finally {
             requestExternalDocumentTreeHandler.compareAndSet(handler, null)
+        }
+    }
+
+    /** Selects a document and retains its read grant for future process launches. */
+    suspend fun requestExternalDocument(mimeTypes: Array<String> = arrayOf("video/*")): String? {
+        val result = CompletableDeferred<Uri?>()
+        val handler: (Uri?) -> Unit = { result.complete(it) }
+        if (!requestExternalDocumentHandler.compareAndSet(null, handler)) return null
+        return try {
+            requestExternalDocumentLauncher.launch(mimeTypes)
+            val uri = result.await() ?: return null
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            uri.toString()
+        } finally {
+            requestExternalDocumentHandler.compareAndSet(handler, null)
         }
     }
 

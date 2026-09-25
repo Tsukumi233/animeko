@@ -36,6 +36,11 @@ interface PermissionManager {
      * Android only. 请求一个完全授予可读写权限的外部共享空间路径，返回其 URL string
      */
     suspend fun requestExternalDocumentTree(context: ContextMP): String?
+
+    /** Android document picker. Successful selection retains a read grant across process restarts. */
+    suspend fun requestExternalDocument(context: ContextMP, mimeTypes: List<String> = listOf("video/*")): String? {
+        throw UnsupportedOperationException("Document grants are only available on Android")
+    }
 }
 
 object GrantedPermissionManager : PermissionManager {

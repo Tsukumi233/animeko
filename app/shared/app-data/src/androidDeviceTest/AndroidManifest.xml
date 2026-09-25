@@ -4,5 +4,10 @@
         android:networkSecurityConfig="@xml/android_device_test_network_security_config"
         android:usesCleartextTraffic="true">
         <activity android:name="androidx.activity.ComponentActivity" />
+        <provider
+            android:name="me.him188.ani.app.domain.mediasource.local.LocalResourceTestDocumentsProvider"
+            android:authorities="me.him188.ani.localresource.test"
+            android:exported="true"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

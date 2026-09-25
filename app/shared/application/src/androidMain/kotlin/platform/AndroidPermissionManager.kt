@@ -67,4 +67,10 @@ class AndroidPermissionManager : PermissionManager {
         logger.info { "request external document tree result: $result" }
         return result
     }
+
+    override suspend fun requestExternalDocument(context: ContextMP, mimeTypes: List<String>): String? {
+        val activity = context.findActivity() as? AniComponentActivity
+            ?: error("Document selection requires an activity")
+        return activity.requestExternalDocument(mimeTypes.toTypedArray())
+    }
 }
