@@ -166,6 +166,7 @@ class MediaSourceMediaFetcher(
     private val configProvider: () -> MediaFetcherConfig,
     private val mediaSources: List<MediaSourceInstance>,
     private val flowContext: CoroutineContext = Dispatchers.Default,
+    private val confirmedMedia: suspend (String, MediaFetchRequest) -> List<Media> = { _, _ -> emptyList() },
 ) : MediaFetcher {
     private inner class MediaSourceResultImpl(
         override val instanceId: String,
@@ -447,7 +448,11 @@ class MediaSourceMediaFetcher(
                     disabled = !instance.isEnabled,
                     pagedSources = this.request
                         .map {
-                            instance.source.fetch(it)
+                            val request = it
+                            confirmedResourceSource(
+                                confirmed = { confirmedMedia(instance.source.mediaSourceId, request) },
+                                automatic = { instance.source.fetch(request) },
+                            )
                         },
                     flowContext = flowContext,
                 )

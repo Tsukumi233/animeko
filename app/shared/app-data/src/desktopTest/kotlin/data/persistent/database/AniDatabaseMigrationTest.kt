@@ -33,6 +33,26 @@ import kotlin.test.assertTrue
  * runMigrationsAndValidate 会把迁移后的实际 schema 与目标版本 json 逐表逐列校验.
  */
 class AniDatabaseMigrationTest {
+    @Test
+    fun `v26 to v27 preserves history and adds resource library and download identity`() {
+        val helper = createHelper()
+        helper.createDatabase(26).use { connection ->
+            connection.execSQL("INSERT INTO search_history (content) VALUES ('library migration')")
+        }
+        helper.runMigrationsAndValidate(27, emptyList()).use { connection ->
+            for (table in listOf("library_resource", "library_episode_binding", "library_scan_root", "library_scan_entry", "library_match_suggestion")) {
+                assertContains(connection.tableNames(), table)
+            }
+            connection.prepare("SELECT content FROM search_history").use { statement ->
+                assertTrue(statement.step())
+                assertEquals("library migration", statement.getText(0))
+            }
+            connection.prepare("SELECT contentIdentity FROM http_cache_download_state").use { statement ->
+                assertFalse(statement.step())
+            }
+        }
+    }
+
     private fun createHelper(): MigrationTestHelper = MigrationTestHelper(
         schemaDirectoryPath = resolveSchemaDirectory(),
         databasePath = Files.createTempDirectory("ani-migration-test").resolve("test.db"),

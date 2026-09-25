@@ -14,6 +14,8 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import me.him188.ani.app.domain.mediasource.instance.MediaSourceSave
+import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSourceCodec
+import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSourceCodec
 import me.him188.ani.app.domain.mediasource.rss.RssMediaSourceCodec
 import me.him188.ani.app.domain.mediasource.subscription.SubscriptionUpdateData
 import me.him188.ani.app.domain.mediasource.web.SelectorMediaSourceCodec
@@ -27,6 +29,8 @@ class MediaSourceCodecManager(
     private val codecs: ImmutableList<MediaSourceCodec<*>> = persistentListOf(
         // Register your codec here
         RssMediaSourceCodec,
+        LocalFileMediaSourceCodec,
+        PikPakMediaSourceCodec,
         SelectorMediaSourceCodec,
     )
 ) {

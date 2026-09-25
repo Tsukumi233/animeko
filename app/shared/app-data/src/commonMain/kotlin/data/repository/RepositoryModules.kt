@@ -71,6 +71,7 @@ import me.him188.ani.utils.io.resolve
 import org.koin.core.KoinApplication
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
+import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
 
 val Scope.aniApiProvider get() = get<AniApiProvider>()
 
@@ -82,6 +83,7 @@ fun KoinApplication.repositoryModules(
     getContext: () -> Context,
     coroutineScope: CoroutineScope,
 ) = module {
+    single { ResourceLibraryRepository(database.resourceLibraryDao()) }
     single<UserRepository> {
         UserRepository(
             getContext().dataStores.selfInfoStore,

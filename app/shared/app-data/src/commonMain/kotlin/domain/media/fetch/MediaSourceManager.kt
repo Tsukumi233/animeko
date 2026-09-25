@@ -20,12 +20,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.JsonElement
 import me.him188.ani.app.data.models.preference.ProxyAuthorization
 import me.him188.ani.app.data.models.preference.ProxyConfig
 import me.him188.ani.app.data.repository.media.MediaSourceInstanceRepository
+import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
 import me.him188.ani.app.data.repository.media.MikanIndexCacheRepository
 import me.him188.ani.app.data.repository.media.SelectorMediaSourceEpisodeCacheRepository
 import me.him188.ani.app.data.repository.media.updateConfig
@@ -77,6 +78,7 @@ interface MediaSourceManager { // available by inject
      * 全部 [MediaSourceInstance] 列表.
      */
     val allInstances: Flow<List<MediaSourceInstance>>
+    val currentInstances: List<MediaSourceInstance> get() = emptyList()
 
     /**
      * 全部的 [MediaSource], 包括那些设置里关闭的, 包括本地的.
@@ -219,10 +221,12 @@ class MediaSourceManagerImpl(
      */
     additionalSources: () -> List<MediaSource>, // local sources, calculated only once
     private val flowCoroutineContext: CoroutineContext = Dispatchers.Default,
+    additionalFactories: () -> List<MediaSourceFactory> = { emptyList() },
 ) : MediaSourceManager, KoinComponent {
     private val proxyProvider: ProxyProvider by inject()
     private val mikanIndexCacheRepository: MikanIndexCacheRepository by inject()
     private val instances: MediaSourceInstanceRepository by inject()
+    private val resourceLibrary: ResourceLibraryRepository by inject()
     private val selectorMediaSourceEpisodeCacheRepository: SelectorMediaSourceEpisodeCacheRepository by inject()
     private val webSessionManager: WebSessionManager by inject()
     private val webSourceCookieJar: WebSourceCookieJar by inject()
@@ -238,6 +242,7 @@ class MediaSourceManagerImpl(
     )
     private val factories: List<MediaSourceFactory> = buildSet {
         addAll(ServiceLoader.loadServices(MediaSourceFactory::class))
+        addAll(additionalFactories())
         add(MikanMediaSource.Factory()) // Kotlin bug, MPP 加载不了 resources
         add(MikanCNMediaSource.Factory())
         add(RssMediaSource.Factory())
@@ -264,7 +269,8 @@ class MediaSourceManagerImpl(
             this.additionalSources + saves.mapNotNull { createInstance(it, config) }
         }.onReplacement { list ->
             list.forEach { it.close() }
-        }.flowOn(flowCoroutineContext).shareIn(scope, replay = 1, started = SharingStarted.Lazily)
+        }.flowOn(flowCoroutineContext).stateIn(scope, SharingStarted.Eagerly, emptyList())
+    override val currentInstances: List<MediaSourceInstance> get() = allInstances.value
     override val allFactories: List<MediaSourceFactory> get() = factories
 
     private fun createInstance(save: MediaSourceSave, config: ProxyConfig?): MediaSourceInstance? {
@@ -299,10 +305,11 @@ class MediaSourceManagerImpl(
             .plus(this.additionalSources.map { it.factoryId })
     }
 
-    override val mediaFetcher: Flow<MediaFetcher> = allInstances.map { instances ->
+    override val mediaFetcher: Flow<MediaFetcher> = combine(allInstances, resourceLibrary.revision) { instances, _ ->
         MediaSourceMediaFetcher(
             configProvider = { MediaFetcherConfig(currentPlatform() != Platform.Ios) },
             mediaSources = instances,
+            confirmedMedia = resourceLibrary::candidates,
         )
     }
     override val webVideoMatcherLoader: MediaSourceWebVideoMatcherLoader = MediaSourceWebVideoMatcherLoader(
