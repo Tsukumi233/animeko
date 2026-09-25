@@ -161,6 +161,9 @@ class MediaSelectorFilterSortAlgorithm {
         val mediaSubjectName = media.properties.subjectName
         val mediaSubjectNameOrOriginalTitle = mediaSubjectName ?: media.originalTitle
         val contextSubjectNames = context.subjectInfo?.allNames.orEmpty().asSequence()
+        val association = media.association
+        val knownSubjectId = context.subjectInfo?.subjectId?.takeIf { it != 0 }?.toString()
+        val confirmed = association != null && association.subjectId == knownSubjectId
 
         // 由下面实现调用, 方便创建 MaybeExcludedMedia
         fun include(): MaybeExcludedMedia {
@@ -172,20 +175,29 @@ class MediaSelectorFilterSortAlgorithm {
                     media.episodeRange,
                     context.episodeInfo?.sort,
                     context.episodeInfo?.ep,
-                ),
+                ).let { metadata ->
+                    if (confirmed) metadata.copy(subjectMatchKind = MatchMetadata.SubjectMatchKind.EXACT, similarity = 100)
+                    else metadata
+                },
             )
         }
 
         fun exclude(reason: MediaExclusionReason): MaybeExcludedMedia = MaybeExcludedMedia.Excluded(media, reason)
 
         // 第 0 条: 先于本地缓存豁免, 否则看第 2 话时会自动选中第 1 话的缓存.
-        if (episodeMatch != null && !episodeMatch.matches(media)) {
+        if (association != null && knownSubjectId != null && !confirmed) {
+            return exclude(MediaExclusionReason.SubjectNameMismatch)
+        }
+        if (episodeMatch != null && if (confirmed) {
+                context.episodeInfo?.episodeId?.toString() !in association!!.episodeIds
+            } else !episodeMatch.matches(media)
+        ) {
             return exclude(MediaExclusionReason.EpisodeMismatch(media.episodeRange))
         }
 
         if (media.isLocalCache()) return include() // 本地缓存总是要显示
 
-        if (settings.hideSingleEpisodeForCompleted
+        if (!confirmed && settings.hideSingleEpisodeForCompleted
             && context.subjectFinished == true // 还未加载到剧集信息时, 先显示
             && media.kind == MediaSourceKind.BitTorrent
         ) {
@@ -210,6 +222,9 @@ class MediaSelectorFilterSortAlgorithm {
                 return exclude(MediaExclusionReason.UnsupportedByPlatformPlayer)
             }
         }
+
+        // A confirmed binding determines identity; subtitle and viewing preferences still apply.
+        if (confirmed) return include()
 
         if (mediaSubjectName != null) {
             // 数据源可以准确拿到条目名称, 我们采用 specialEquals
@@ -283,8 +298,11 @@ class MediaSelectorFilterSortAlgorithm {
                     }
                 }
 
-                MediaSourceKind.BitTorrent -> true
-                MediaSourceKind.LocalCache -> true
+                MediaSourceKind.BitTorrent,
+                MediaSourceKind.LocalCache,
+                MediaSourceKind.LocalFile,
+                MediaSourceKind.FileService,
+                MediaSourceKind.CloudDrive -> true
             }
 
             if (!allow) {
@@ -375,7 +393,10 @@ class MediaSelectorFilterSortAlgorithm {
                         }
 
                         MediaSourceKind.WEB,
-                        MediaSourceKind.BitTorrent -> {
+                        MediaSourceKind.BitTorrent,
+                        MediaSourceKind.LocalFile,
+                        MediaSourceKind.FileService,
+                        MediaSourceKind.CloudDrive -> {
                             if (settings.preferKind == null) {
                                 0
                             } else {
