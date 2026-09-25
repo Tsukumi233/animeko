@@ -31,6 +31,9 @@ kotlin {
     sourceSets.commonTest.dependencies {
         implementation(projects.utils.uiTesting)
     }
+    sourceSets.androidHostTest.dependencies {
+        implementation(libs.mockito.kotlin)
+    }
     sourceSets.androidMain.dependencies {
         implementation(libs.compose.material3.adaptive.core)
         implementation(libs.androidx.media3.ui)

@@ -299,7 +299,7 @@ private class RoutingDataSourceFactory(
 }
 
 @AndroidxOptIn(UnstableApi::class)
-private class RoutingDataSource(
+internal class RoutingDataSource(
     private val mediaUri: String,
     private val mediaDataSourceFactory: DataSource.Factory,
     private val fallbackDataSourceFactory: DataSource.Factory,
@@ -332,8 +332,9 @@ private class RoutingDataSource(
         activeDataSource?.responseHeaders.orEmpty()
 
     override fun close() {
-        activeDataSource?.close()
+        val source = activeDataSource
         activeDataSource = null
+        source?.close()
     }
 }
 
