@@ -296,7 +296,7 @@ private fun EpisodeScreenContent(
 
     val resourceNavigator = LocalNavigator.current
     WindowDropHandlerEffect(rememberEpisodeVideoDropHandler {
-        resourceNavigator.navigateResourceLibrary(vm.subjectId, vm.currentEpisodeId, initialFiles = listOf(it.absolutePath))
+        resourceNavigator.navigateResourceLibrary(vm.subjectId, vm.currentEpisodeId, initialFiles = it.map { file -> file.absolutePath })
     })
 
     DarkStatusBarAppearance()

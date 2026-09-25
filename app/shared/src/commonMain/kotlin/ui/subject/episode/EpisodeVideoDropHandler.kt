@@ -26,24 +26,29 @@ import me.him188.ani.app.ui.lang.episode_drop_video_supported_hint
 import me.him188.ani.app.ui.lang.episode_drop_video_title
 import me.him188.ani.app.ui.lang.episode_drop_video_unknown_name
 import me.him188.ani.utils.io.SystemPath
+import me.him188.ani.utils.io.inSystem
+import me.him188.ani.utils.io.isDirectory
 import me.him188.ani.utils.io.name
 import org.jetbrains.compose.resources.stringResource
 
 /**
  * 播放页的窗口拖放处理者：选择本地视频并交给当前剧集的资源关联确认入口。
  *
- * 只接管含有视频文件的文件列表, 以及拖动阶段读不到内容的拖放 (松手后再判断); 其他内容交给后续处理者.
- * 拖入多个文件时选择其中首个视频文件。
- *
- * @see EpisodeViewModel.playDroppedFile
+ * 接管视频文件和本地目录，保留拖放顺序并去重，交给统一的批量关联入口。
+ * 拖动阶段读不到内容时显示通用提示，松手后检查实际内容。
  */
 class EpisodeVideoDropHandler(
-    private val onSelect: (SystemPath) -> Unit,
+    private val isDirectory: (SystemPath) -> Boolean = { runCatching { it.isDirectory() }.getOrDefault(false) },
+    private val onSelect: (List<SystemPath>) -> Unit,
 ) : WindowDropHandler {
+    private fun selectFiles(content: DragAndDropContent.FileList): List<SystemPath> = content.files
+        .filter { DroppedFileMedia.isVideoFile(it) || isDirectory(it.inSystem) }
+        .map { it.inSystem }.distinct()
+
     override fun onDragStarted(content: DragAndDropContent?): WindowDropPreview? {
         val file = when (content) {
             null -> null
-            is DragAndDropContent.FileList -> DroppedFileMedia.findVideoFile(content.files) ?: return null
+            is DragAndDropContent.FileList -> selectFiles(content).firstOrNull() ?: return null
             is DragAndDropContent.PlainText, DragAndDropContent.Unsupported -> return null
         }
         return WindowDropPreview { EpisodeVideoDropCard(file) }
@@ -51,8 +56,9 @@ class EpisodeVideoDropHandler(
 
     override fun onDrop(content: DragAndDropContent): Boolean {
         if (content !is DragAndDropContent.FileList) return false
-        val file = DroppedFileMedia.findVideoFile(content.files) ?: return false
-        onSelect(file)
+        val files = selectFiles(content)
+        if (files.isEmpty()) return false
+        onSelect(files)
         return true
     }
 
@@ -61,7 +67,7 @@ class EpisodeVideoDropHandler(
 }
 
 @Composable
-fun rememberEpisodeVideoDropHandler(onSelect: (SystemPath) -> Unit): EpisodeVideoDropHandler {
+fun rememberEpisodeVideoDropHandler(onSelect: (List<SystemPath>) -> Unit): EpisodeVideoDropHandler {
     val onSelectUpdated by rememberUpdatedState(onSelect)
     return remember { EpisodeVideoDropHandler { onSelectUpdated(it) } }
 }

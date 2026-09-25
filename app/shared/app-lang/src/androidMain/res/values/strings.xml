@@ -167,8 +167,8 @@
     <string name="window_drop_unsupported_description">Only %1$s are supported. Nothing happens if you release now</string>
     <string name="episode_drop_video_title">Release to associate</string>
     <string name="episode_drop_video_unknown_name">Video file</string>
-    <string name="episode_drop_video_description">Confirm this file for the current episode, then play it from your resource library.</string>
-    <string name="episode_drop_video_supported_hint">video files</string>
+    <string name="episode_drop_video_description">Review the videos and their episode associations before saving to your resource library.</string>
+    <string name="episode_drop_video_supported_hint">video files and folders</string>
     <string name="settings_help_qq">QQ</string>
     <string name="settings_help_telegram">Telegram</string>
     <string name="settings_help_github">GitHub</string>

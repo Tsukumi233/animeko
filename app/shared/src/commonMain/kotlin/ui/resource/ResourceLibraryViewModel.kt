@@ -142,7 +142,7 @@ class ResourceLibraryViewModel(
     fun importInitialFiles(name: String) {
         if (initialFilesHandled || initialFiles.isEmpty()) return
         initialFilesHandled = true
-        addLocal(initialFiles, directory = false, name = name)
+        addLocal(initialFiles, directory = null, name = name)
     }
 
     fun subjectCollection(subjectId: Int): StateFlow<SubjectCollectionInfo?> = subjectMetadata.getOrPut(subjectId) {
@@ -283,45 +283,51 @@ class ResourceLibraryViewModel(
         association.value = ResourceAssociationUiState()
     }
 
-    fun addLocal(uris: List<String>, directory: Boolean, name: String) = action {
+    fun addLocal(uris: List<String>, directory: Boolean?, name: String) = action {
         sourceWrites.withLock {
-            val id = if (directory) Uuid.randomString() else "user-local-files"
-            val entries = uris.map { localAccess.stat(it) }
-            val displayName = if (directory) entries.single().name else name
-            val args = LocalFileMediaSourceArguments(displayName)
-            if (instances.flow.first().none { it.mediaSourceId == id }) {
-                instances.add(MediaSourceSave(id, id, LocalFileMediaSource.FactoryId, true,
-                    MediaSourceConfig(serializedArguments = Json.encodeToJsonElement(args))))
-            }
-            val refs = entries.map { MediaResourceRef(id, it.uri) }
-            val source = LocalFileMediaSource(id, localAccess, { refs }, args)
+            val allEntries = uris.distinct().map { localAccess.stat(it) }.distinctBy { it.uri }
+            if (directory != null) require(allEntries.all { it.isDirectory == directory })
             val picked = mutableListOf<ResourcePreviewInput>()
-            for (entry in entries) {
-                val item = source.entry(entry.uri)
-                val root = library.dao.scanRoots().first().find {
-                    it.sourceId == id && Json.decodeFromString<MediaResourceRef>(it.referenceJson) == item.reference
-                } ?: LibraryScanRootEntity(Uuid.randomString(), id, Json.encodeToString(item.reference), item.name, recursive = directory)
-                library.dao.upsertScanRoot(root)
-                if (item.kind.isVideo) {
-                    library.index(item)
-                    picked += ResourcePreviewInput(item)
+            // 每个目录拥有独立来源；单文件共享本地文件来源，整批只打开一次关联确认。
+            val groups = allEntries.map { listOf(it) }
+            for (entries in groups) {
+                val isDirectory = entries.first().isDirectory
+                val id = if (isDirectory) Uuid.randomString() else "user-local-files"
+                val displayName = if (isDirectory) entries.single().name else name
+                val args = LocalFileMediaSourceArguments(displayName)
+                if (instances.flow.first().none { it.mediaSourceId == id }) {
+                    instances.add(MediaSourceSave(id, id, LocalFileMediaSource.FactoryId, true,
+                        MediaSourceConfig(serializedArguments = Json.encodeToJsonElement(args))))
                 }
-                else if (directory) {
-                    val job = currentCoroutineContext()[Job]!!
-                    scanJobs.update { it + (root.id to job) }
-                    try { scanner.scan(root, source) } finally {
-                        val job = currentCoroutineContext()[Job]
-                        scanJobs.update { if (it[root.id] === job) it - root.id else it }
+                val refs = entries.map { MediaResourceRef(id, it.uri) }
+                val source = LocalFileMediaSource(id, localAccess, { refs }, args)
+                for (entry in entries) {
+                    val item = source.entry(entry.uri)
+                    val root = library.dao.scanRoots().first().find {
+                        it.sourceId == id && Json.decodeFromString<MediaResourceRef>(it.referenceJson) == item.reference
+                    } ?: LibraryScanRootEntity(Uuid.randomString(), id, Json.encodeToString(item.reference), item.name, recursive = isDirectory)
+                    library.dao.upsertScanRoot(root)
+                    if (item.kind.isVideo) {
+                        library.index(item)
+                        picked += ResourcePreviewInput(item)
+                    }
+                    else if (isDirectory) {
+                        val job = currentCoroutineContext()[Job]!!
+                        scanJobs.update { it + (root.id to job) }
+                        try { scanner.scan(root, source) } finally {
+                            val job = currentCoroutineContext()[Job]
+                            scanJobs.update { if (it[root.id] === job) it - root.id else it }
+                        }
                     }
                 }
-            }
-            if (directory) {
-                picked += library.dao.resourcesForSource(id).first().filter { it.available }.map { resource ->
-                    ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name, MediaSourceEntryKind.VIDEO, resource.size, resource.modifiedTimeMillis))
+                if (isDirectory) {
+                    picked += library.dao.resourcesForSource(id).first().filter { it.available }.map { resource ->
+                        ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name, MediaSourceEntryKind.VIDEO, resource.size, resource.modifiedTimeMillis))
+                    }
                 }
+                manager.allInstances.first { list -> list.any { it.mediaSourceId == id } }
             }
-            manager.allInstances.first { list -> list.any { it.mediaSourceId == id } }
-            selected.value = picked
+            selected.value = picked.distinctBy { it.identity }
             beginAssociation()
         }
     }

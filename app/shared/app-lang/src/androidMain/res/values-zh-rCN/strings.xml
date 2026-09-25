@@ -166,9 +166,9 @@
     <string name="window_drop_unsupported_title">不支持的文件</string>
     <string name="window_drop_unsupported_description">仅支持%1$s，松手后不会有任何操作</string>
     <string name="episode_drop_video_title">松手以关联资源</string>
-    <string name="episode_drop_video_unknown_name">视频文件</string>
-    <string name="episode_drop_video_description">确认此文件与当前剧集的对应关系，保存到资源库后播放</string>
-    <string name="episode_drop_video_supported_hint">视频文件</string>
+    <string name="episode_drop_video_unknown_name">视频文件和目录</string>
+    <string name="episode_drop_video_description">确认视频与剧集的对应关系，保存到资源库</string>
+    <string name="episode_drop_video_supported_hint">视频文件和目录</string>
     <string name="settings_help_qq">QQ</string>
     <string name="settings_help_telegram">Telegram</string>
     <string name="settings_help_github">GitHub</string>

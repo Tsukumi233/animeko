@@ -38,9 +38,17 @@ class EpisodeVideoDropHandlerTest {
     }
 
     @Test
-    fun `selects the first video file on drop`() {
+    fun `selects all video files in order on drop`() {
         assertTrue(handler.onDrop(files("episode-01.ass", "episode-01.mkv", "episode-02.mkv")))
-        assertEquals(listOf(Path("/videos/episode-01.mkv").inSystem), selected)
+        assertEquals(listOf(Path("/videos/episode-01.mkv").inSystem, Path("/videos/episode-02.mkv").inSystem), selected)
+    }
+
+    @Test
+    fun `accepts directories and deduplicates a mixed drop`() {
+        val handler = EpisodeVideoDropHandler(isDirectory = { it == Path("/videos/season").inSystem }) { selected += it }
+        assertNotNull(handler.onDragStarted(files("season")))
+        assertTrue(handler.onDrop(files("season", "episode-01.mkv", "season", "readme.txt")))
+        assertEquals(listOf(Path("/videos/season").inSystem, Path("/videos/episode-01.mkv").inSystem), selected)
     }
 
     @Test
