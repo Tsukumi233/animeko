@@ -9,22 +9,13 @@
 
 package me.him188.ani.app.domain.player.extension
 
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import me.him188.ani.app.domain.episode.EpisodeSession
-import me.him188.ani.app.domain.media.fetch.MediaSourceFetchResult
-import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
 import me.him188.ani.app.domain.media.selector.eventHandling
 import me.him188.ani.app.domain.mediasource.GetPreferredWebMediaSourceUseCase
 import me.him188.ani.app.domain.mediasource.SetPreferredWebMediaSourceUseCase
-import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.utils.logging.info
 import me.him188.ani.utils.logging.logger
 import org.koin.core.Koin
@@ -48,52 +39,16 @@ class ObserveWebMediaSourcePreferenceExtension(
         backgroundTaskScope.launch("ObserveWebMediaSourcePreference") {
             context.sessionFlow.flatMapLatest { it.fetchSelectFlow }.collectLatest { bundle ->
                 if (bundle == null) return@collectLatest
-                coroutineScope {
-                    // 监听用户手动选择来源的事件。
-                    launch {
-                        bundle.mediaSelector.eventHandling.preferWebMediaSource { event ->
-                            if (event.subjectId != context.subjectId) return@preferWebMediaSource
-                            val currentPreference = getPreferredWebMediaSource(event.subjectId).first()
-                            if (currentPreference != event.mediaSourceId) {
-                                logger.info { "Set source preference for subject ${context.subjectId} to ${event.mediaSourceId}" }
-                                setPreferredWebMediaSource(event.subjectId, event.mediaSourceId)
-                            }
-                        }
+                // A fetch failure affects this session's fallback, not the user's remembered choice.
+                bundle.mediaSelector.eventHandling.preferWebMediaSource { event ->
+                    if (event.subjectId != context.subjectId) return@preferWebMediaSource
+                    val currentPreference = getPreferredWebMediaSource(event.subjectId).first()
+                    if (currentPreference != event.mediaSourceId) {
+                        logger.info { "Set source preference for subject ${context.subjectId} to ${event.mediaSourceId}" }
+                        setPreferredWebMediaSource(event.subjectId, event.mediaSourceId)
                     }
-
-                    // 来源查询失败时删除对应偏好。
-                    // 条目级查询会话跨集共用, 只有源自身失败 (Failed) 才算; 被中途取消 (Abandoned) 不算.
-                    combine(
-                        // 如果这个 subject 没有偏好, 则不继续监听, 这里将会一直挂起
-                        getPreferredWebMediaSource(context.subjectId).filterNotNull(),
-                        combine(
-                            bundle.mediaFetchSession.mediaSourceResults
-                                .filter { it.kind != MediaSourceKind.LocalCache }
-                                .map { r -> r.state.map { r } },
-                            Array<MediaSourceFetchResult>::toList,
-                        ),
-                    ) { preferredWebMediaSourceId, results ->
-                        results.forEach {
-                            if (it.mediaSourceId != preferredWebMediaSourceId) return@forEach
-                            if (it.state.value is MediaSourceFetchState.Failed) {
-                                logger.info {
-                                    "Remove source preference for subject ${context.subjectId} from ${it.mediaSourceId}. " +
-                                            "because source state in this session is ${it.state.value.str()}."
-                                }
-                                setPreferredWebMediaSource(context.subjectId, null)
-                            }
-                        }
-                    }.launchIn(this)
                 }
             }
-        }
-    }
-
-    private fun MediaSourceFetchState.str(): String {
-        return when (this) {
-            is MediaSourceFetchState.Failed -> "failed"
-            is MediaSourceFetchState.Abandoned -> "abandoned"
-            else -> this::class.simpleName!!.lowercase()
         }
     }
 

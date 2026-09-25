@@ -127,7 +127,7 @@ class PersonalResourceSelectionTest {
     }
 
     @Test
-    fun `confirmed association overrides title and BT hiding but respects subtitles and episode identity`() =
+    fun `confirmed association permits unknown subtitles but respects episode identity`() =
         runSimpleMediaSelectorTestSuite {
             initSubject("Example")
             val context = preferenceApi.mediaSelectorContext.value
@@ -142,11 +142,31 @@ class PersonalResourceSelectionTest {
             val anotherEpisode = bound.copy(mediaId = "another-episode", association = MediaAssociation("123", listOf("99999")))
             mediaApi.addMedia(bound, noSubtitle, anotherEpisode)
             val results = selector.filteredCandidates.first()
-            val included = results.filterIsInstance<MaybeExcludedMedia.Included>().single()
-            assertEquals(bound.mediaId, included.result.mediaId)
-            assertEquals(MatchMetadata.SubjectMatchKind.EXACT, included.metadata.subjectMatchKind)
-            assertEquals(setOf(MediaExclusionReason.MediaWithoutSubtitle::class, MediaExclusionReason.EpisodeMismatch::class),
+            val included = results.filterIsInstance<MaybeExcludedMedia.Included>()
+            assertEquals(setOf(bound.mediaId, noSubtitle.mediaId), included.map { it.result.mediaId }.toSet())
+            assertEquals(setOf(MatchMetadata.SubjectMatchKind.EXACT), included.map { it.metadata.subjectMatchKind }.toSet())
+            assertEquals(setOf(MediaExclusionReason.EpisodeMismatch::class),
                 results.filterIsInstance<MaybeExcludedMedia.Excluded>().map { it.exclusionReason::class }.toSet())
+        }
+
+    @Test
+    fun `language preference permits confirmed unknown metadata but still filters known languages and other sources`() =
+        runSimpleMediaSelectorTestSuite {
+            initSubject("Example")
+            val context = preferenceApi.mediaSelectorContext.value
+            preferenceApi.mediaSelectorContext.value = context.copy(subjectInfo = context.subjectInfo!!.copy(subjectId = 123))
+            preferenceApi.savedDefaultPreference.value = MediaPreference.Any.copy(showWithoutSubtitle = false, subtitleLanguageId = "CHS")
+            preferenceApi.savedUserPreference.value = MediaPreference.Any.copy(subtitleLanguageId = "CHS")
+            val bound = media(subjectName = "Example").copy(
+                association = MediaAssociation("123", listOf(context.episodeInfo!!.episodeId.toString())),
+            )
+            val unknown = bound.copy(mediaId = "unknown", properties = bound.properties.copy(subtitleLanguageIds = emptyList()))
+            val known = bound.copy(mediaId = "known-english", properties = bound.properties.copy(subtitleLanguageIds = listOf("ENG")))
+            val unconfirmed = unknown.copy(mediaId = "unconfirmed", association = null)
+            mediaApi.addMedia(unknown, known, unconfirmed)
+            assertEquals(listOf("unknown"), selector.preferredCandidatesMedia.first().map { it.mediaId })
+            selector.mediaSourceId.prefer("other-source")
+            assertEquals(emptyList(), selector.preferredCandidatesMedia.first())
         }
 
     context(scope: TestScope)

@@ -204,7 +204,7 @@ class ObserveWebMediaSourcePreferenceExtensionTest : AbstractPlayerExtensionTest
     }
 
     @Test
-    fun `remove preference if preferred source fails`() = runTest {
+    fun `failed preferred source and automatic fallback preserve memory until another manual choice`() = runTest {
         val web1: CompletableDeferred<List<Media>>
         val web2: CompletableDeferred<List<Media>>
         val context = createCase { _, suite ->
@@ -221,12 +221,19 @@ class ObserveWebMediaSourcePreferenceExtensionTest : AbstractPlayerExtensionTest
         web1.completeExceptionally(IllegalStateException("constant failure"))
         advanceUntilIdle()
 
-        // Source web1 failed, so preference should be removed
-        assertEquals(0, setPreferenceCalls.size)
+        assertEquals("web1", preferredWebMediaSource.value)
+        assertEquals(listOf(subjectId to "web1"), setPreferenceCalls)
 
         val media = suite.mediaSelectorTestBuilder.createMedia("web2", kind = MediaSourceKind.WEB)
         web2.complete(listOf(media))
         advanceUntilIdle()
+
+        state.mediaSelectorFlow.filterNotNull().first().selectTemporarily(media)
+        advanceUntilIdle()
+        assertEquals("web1", preferredWebMediaSource.value)
+        assertEquals(listOf(subjectId to "web1"), setPreferenceCalls)
+        state.mediaSelectorFlow.filterNotNull().first().unselect()
+        setPreferenceCalls.clear()
 
         // Select the different web media
         state.mediaSelectorFlow.filterNotNull().first().select(media)

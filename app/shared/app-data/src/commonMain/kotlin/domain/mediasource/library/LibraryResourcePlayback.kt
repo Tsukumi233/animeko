@@ -12,7 +12,7 @@ import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.datasources.api.unwrapCached
 import kotlin.coroutines.cancellation.CancellationException
 
-enum class LibraryResourcePlaybackError { MISSING_BINDING, SOURCE_UNAVAILABLE, INVALID_REFERENCE }
+enum class LibraryResourcePlaybackError { MISSING_BINDING, SOURCE_UNAVAILABLE, INVALID_REFERENCE, SELECTION_REJECTED }
 
 /** Resolves only the confirmed tuple; names and episode numbers are not identity evidence. */
 suspend fun ResourceLibraryRepository.resolveForPlayback(resourceId: String, subjectId: Int, episodeId: Int): Media? {
@@ -47,7 +47,9 @@ class LibraryResourcePlaybackRequest(
     /** Metadata refresh can rebuild the selector; retain the user's latest choice without rewriting preference. */
     suspend fun selectForEpisode(currentEpisodeId: Int, selector: MediaSelector): Boolean {
         val previous = previousSelector
-        val handled = selectForEpisode(currentEpisodeId, selector::select)
+        val handled = selectForEpisode(currentEpisodeId) { media ->
+            selector.select(media) || selector.selected.value == media
+        }
         if (handled) {
             if (previous != null && previous !== selector && selector.selected.value == null) {
                 previous.selected.value?.let { selector.selectTemporarily(it) }
@@ -65,7 +67,7 @@ class LibraryResourcePlaybackRequest(
             when {
                 media == null -> mutableError.value = LibraryResourcePlaybackError.MISSING_BINDING
                 !sourceExists(media.mediaSourceId) -> mutableError.value = LibraryResourcePlaybackError.SOURCE_UNAVAILABLE
-                else -> select(media)
+                !select(media) -> mutableError.value = LibraryResourcePlaybackError.SELECTION_REJECTED
             }
             attempted = true
         } catch (e: CancellationException) {

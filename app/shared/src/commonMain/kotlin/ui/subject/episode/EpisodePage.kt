@@ -141,6 +141,7 @@ import me.him188.ani.app.domain.mediasource.library.LibraryResourcePlaybackError
 import me.him188.ani.app.ui.lang.library_playback_missing_binding
 import me.him188.ani.app.ui.lang.library_playback_source_unavailable
 import me.him188.ani.app.ui.lang.library_playback_invalid_reference
+import me.him188.ani.app.ui.lang.library_playback_selection_rejected
 import org.jetbrains.compose.resources.getString
 import me.him188.ani.app.ui.foundation.widgets.showLoadError
 import me.him188.ani.app.ui.lang.Lang
@@ -232,6 +233,7 @@ private fun EpisodeScreenContent(
                 LibraryResourcePlaybackError.MISSING_BINDING -> Lang.library_playback_missing_binding
                 LibraryResourcePlaybackError.SOURCE_UNAVAILABLE -> Lang.library_playback_source_unavailable
                 LibraryResourcePlaybackError.INVALID_REFERENCE -> Lang.library_playback_invalid_reference
+                LibraryResourcePlaybackError.SELECTION_REJECTED -> Lang.library_playback_selection_rejected
                 null -> null
             }
             if (message != null) resourcePlaybackToaster.toast(getString(message))

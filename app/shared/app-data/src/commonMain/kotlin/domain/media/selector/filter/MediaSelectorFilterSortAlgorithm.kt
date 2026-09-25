@@ -209,7 +209,7 @@ class MediaSelectorFilterSortAlgorithm {
             )
         }
 
-        if (!preference.showWithoutSubtitle &&
+        if (!confirmed && !preference.showWithoutSubtitle &&
             (media.properties.subtitleLanguageIds.isEmpty() && media.extraFiles.subtitles.isEmpty())
         ) {
             // 不显示无字幕的
@@ -223,7 +223,7 @@ class MediaSelectorFilterSortAlgorithm {
             }
         }
 
-        // A confirmed binding determines identity; subtitle and viewing preferences still apply.
+        // Confirmed files can have unknown subtitle metadata; known platform incompatibilities still apply.
         if (confirmed) return include()
 
         if (mediaSubjectName != null) {
@@ -463,7 +463,8 @@ class MediaSelectorFilterSortAlgorithm {
 
             return mergedPreferences.alliance matches it.properties.alliance &&
                     mergedPreferences.resolution matches it.properties.resolution &&
-                    mergedPreferences.subtitleLanguageId matches it.properties.subtitleLanguageIds &&
+                      (mergedPreferences.subtitleLanguageId matches it.properties.subtitleLanguageIds ||
+                              (it.association != null && it.properties.subtitleLanguageIds.isEmpty())) &&
                     mergedPreferences.mediaSourceId matches it.mediaSourceId
         }
 

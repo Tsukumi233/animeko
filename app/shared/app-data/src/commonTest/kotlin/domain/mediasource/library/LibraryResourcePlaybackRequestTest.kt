@@ -27,6 +27,19 @@ class LibraryResourcePlaybackRequestTest {
     private val media = libraryPlaybackTestMedia()
 
     @Test
+    fun `rejected selection is visible while already selected candidate is successful`() = runTest {
+        val rejected = LibraryResourcePlaybackRequest(11, { media }, { true })
+        assertTrue(rejected.selectForEpisode(11) { false })
+        assertEquals(LibraryResourcePlaybackError.SELECTION_REJECTED, rejected.error.value)
+
+        val selector = SimpleMediaSelectorTestSuite(this).selector
+        selector.select(media)
+        val existing = LibraryResourcePlaybackRequest(11, { media }, { true })
+        assertTrue(existing.selectForEpisode(11, selector))
+        assertNull(existing.error.value)
+    }
+
+    @Test
     fun `metadata refresh carries latest manual selection instead of reclaiming original file`() = runTest {
         val first = SimpleMediaSelectorTestSuite(this).selector
         val refreshed = SimpleMediaSelectorTestSuite(this).selector
