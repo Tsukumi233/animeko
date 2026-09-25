@@ -61,11 +61,24 @@ data class ConfirmedResourceMatchingRule(
     val mappings: List<ConfirmedResourceEpisodeMapping>,
     /** Empty means the user explicitly accepted all titles within this exact container. */
     val acceptedTitles: Set<String> = emptySet(),
+    val parentLocator: String = parentResourceId,
+    val parentVersion: Int = 1,
 ) {
     init {
         require(id.isNotBlank() && sourceId.isNotBlank() && parentResourceId.isNotBlank())
+        require(parentVersion > 0)
         require(mappings.isNotEmpty() && mappings.map { it.sort }.distinct().size == mappings.size)
         require(mappings.map { it.target }.distinct().size == mappings.size)
+    }
+    companion object {
+        fun forParent(
+            id: String,
+            parent: MediaResourceRef,
+            mappings: List<ConfirmedResourceEpisodeMapping>,
+            acceptedTitles: Set<String> = emptySet(),
+        ): ConfirmedResourceMatchingRule = ConfirmedResourceMatchingRule(
+            id, parent.sourceId, parent.resourceId, mappings, acceptedTitles, parent.locator, parent.version,
+        )
     }
 }
 
@@ -104,7 +117,9 @@ class ResourceAssociationPreviewBuilder(private val parser: RawTitleParser = Raw
         require(protectedDecisions.map { it.identity }.distinct().size == protectedDecisions.size)
         val protected = protectedDecisions.associateBy { it.identity }
         val rows = inputs.map { input ->
-            val stem = input.fileName.substringBeforeLast('.', input.fileName)
+            val stem = if (input.fileName.substringAfterLast('.', "").lowercase() in DroppedFileMedia.VIDEO_EXTENSIONS) {
+                input.fileName.substringBeforeLast('.')
+            } else input.fileName
             val parsed = parser.parse(stem)
             val folder = input.folderName?.let { parser.parse(it) }
             val titles = (listOfNotNull(parsed.chineseTitle) + parsed.otherTitles +
@@ -126,7 +141,9 @@ class ResourceAssociationPreviewBuilder(private val parser: RawTitleParser = Raw
                 else -> {
                     val matches = confirmedRules?.rules.orEmpty().mapNotNull { rule ->
                         if (rule.sourceId != input.identity.sourceId || rule.sourceId != input.parentReference?.sourceId ||
-                            rule.parentResourceId != input.parentReference?.resourceId) return@mapNotNull null
+                            rule.parentResourceId != input.parentReference?.resourceId ||
+                            rule.parentLocator != input.parentReference?.locator ||
+                            rule.parentVersion != input.parentReference?.version) return@mapNotNull null
                         if (rule.acceptedTitles.isNotEmpty() && titles.none { title ->
                                 rule.acceptedTitles.any { it.trim().equals(title.trim(), ignoreCase = true) }
                             }) return@mapNotNull null
@@ -134,7 +151,9 @@ class ResourceAssociationPreviewBuilder(private val parser: RawTitleParser = Raw
                     }
                     val candidates = episodeOptions.filter { it.sort == sort }.map { it.target }.distinct()
                     when {
-                        matches.size == 1 -> row(ResourcePreviewStatus.AUTO_ASSIGNABLE, listOf(matches.single().second), matches.single().first)
+                        matches.size == 1 -> if (episodeOptions.any { it.target == matches.single().second }) {
+                            row(ResourcePreviewStatus.AUTO_ASSIGNABLE, listOf(matches.single().second), matches.single().first)
+                        } else row(ResourcePreviewStatus.UNRECOGNIZED)
                         matches.size > 1 -> row(ResourcePreviewStatus.AMBIGUOUS, matches.map { it.second }.distinct())
                         candidates.size == 1 -> row(ResourcePreviewStatus.SUGGESTED, candidates)
                         candidates.size > 1 -> row(ResourcePreviewStatus.AMBIGUOUS, candidates)

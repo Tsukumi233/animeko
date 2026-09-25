@@ -21,6 +21,7 @@ class ResourceAssociationPreviewTest {
     private val second = ResourceEpisodeTarget(2, 21)
     private val main = EpisodeSort(1)
     private val special = EpisodeSort("SP01")
+    private val options get() = listOf(ResourceEpisodeOption(first, main), ResourceEpisodeOption(second, special))
     private fun input(id: String, name: String = "[Group] Show - 01 [1080p].mkv", parent: String = "folder") = ResourcePreviewInput(
         MediaSourceEntry(MediaResourceRef("source", id), name, MediaSourceEntryKind.VIDEO,
             parent = MediaResourceRef("source", parent)),
@@ -39,7 +40,7 @@ class ResourceAssociationPreviewTest {
 
     @Test
     fun `only one confirmed scoped typed rule allows automatic assignment`() {
-        val result = builder.build(listOf(input("a")), emptyList(), confirmedRules = rules(rule())).single()
+        val result = builder.build(listOf(input("a")), options, confirmedRules = rules(rule())).single()
         assertEquals(ResourcePreviewStatus.AUTO_ASSIGNABLE, result.status)
         assertEquals(listOf(first), result.targets)
         assertEquals("one", result.matchedRuleId)
@@ -73,11 +74,11 @@ class ResourceAssociationPreviewTest {
 
     @Test
     fun `duplicate versions and occupied episodes cannot autoassign`() {
-        val rows = builder.build(listOf(input("a"), input("b")), emptyList(), confirmedRules = rules(rule()))
+        val rows = builder.build(listOf(input("a"), input("b")), options, confirmedRules = rules(rule()))
         assertTrue(rows.all { it.status == ResourcePreviewStatus.AMBIGUOUS })
         val protected = ProtectedResourceDecision(input("old").identity, ProtectedResourceDecisionKind.CONFIRMED, first)
         assertEquals(ResourcePreviewStatus.AMBIGUOUS,
-            builder.build(listOf(input("new")), emptyList(), listOf(protected), rules(rule())).single().status)
+            builder.build(listOf(input("new")), options, listOf(protected), rules(rule())).single().status)
     }
 
     @Test
@@ -105,5 +106,30 @@ class ResourceAssociationPreviewTest {
         assertFailsWith<IllegalArgumentException> { ConfirmedResourceMatchingRules(2, emptyList()) }
         assertFailsWith<IllegalArgumentException> { rule().copy(mappings = listOf(ConfirmedResourceEpisodeMapping(main, first), ConfirmedResourceEpisodeMapping(main, second))) }
         assertNotEquals(main, special)
+    }
+
+    @Test
+    fun `fractional website episode and dotted title retain their original text`() {
+        val name = "Show.v2 - 23.5"
+        val result = builder.build(listOf(input("web", name)), listOf(ResourceEpisodeOption(first, EpisodeSort("23.5")))).single()
+        assertEquals(EpisodeSort("23.5"), result.episodeSort)
+        assertEquals(ResourcePreviewStatus.SUGGESTED, result.status)
+        assertTrue(result.titleSuggestions.any { "Show.v2" in it })
+    }
+
+    @Test
+    fun `confirmed rule with an absent target cannot automatically assign`() {
+        val result = builder.build(listOf(input("new")), emptyList(), confirmedRules = rules(rule())).single()
+        assertEquals(ResourcePreviewStatus.UNRECOGNIZED, result.status)
+        assertTrue(result.targets.isEmpty())
+    }
+
+    @Test
+    fun `provider account scope changes cannot reuse a confirmed directory rule`() {
+        val original = input("a").copy(parentReference = MediaResourceRef("source", "folder", "account-one/folder"))
+        val confirmed = rules(ConfirmedResourceMatchingRule.forParent("rule", requireNotNull(original.parentReference), rule().mappings))
+        assertEquals(ResourcePreviewStatus.AUTO_ASSIGNABLE, builder.build(listOf(original), options, confirmedRules = confirmed).single().status)
+        val changed = original.copy(parentReference = MediaResourceRef("source", "folder", "account-two/folder"))
+        assertEquals(ResourcePreviewStatus.SUGGESTED, builder.build(listOf(changed), options, confirmedRules = confirmed).single().status)
     }
 }

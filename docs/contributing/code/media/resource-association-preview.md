@@ -6,6 +6,7 @@
 
 文件名与可选文件夹名称交给现有 `RawTitleParser`，不另建解析引擎。
 解析器未提取标题时，保留原文件夹名和不含扩展名的文件名作为搜索建议，不据此确认归属。
+只移除已知视频扩展名；网站标题中的点号和 `23.5` 等剧集编号保持完整。
 `titleSuggestions` 可用于既有 `SubjectSearchRepository`，标题本身不证明 Bangumi 身份。
 剧集目录使用 `ResourceEpisodeOption(target, sort)`：调用方明确选择按连续集号或季内集号匹配，
 SP/OVA 与正片保持各自的 `EpisodeSort` 类型。多个季度具有相同集号时保留所有候选。
@@ -21,8 +22,11 @@ SP/OVA 与正片保持各自的 `EpisodeSort` 类型。多个季度具有相同�
 规则仅在用户确认适用来源、精确父容器和集号映射后保存；空 `acceptedTitles` 表示用户明确接受该容器内所有标题。
 规则按来源 ID、父资源 ID、类型化集号及可选标题约束匹配。追加文件仅在一个已确认规则命中、
 本批次无竞争文件且已保存决定中没有同来源目标占用时成为 `AUTO_ASSIGNABLE`。
+规则目标还必须存在于调用方提供的剧集目录；未加载目录或目标已移除时不能自动关联。
 即便多个规则指向同一目标，也保留歧义，不按规则顺序选第一个。
 来源未在根目录文件上附带父引用时，扫描器应通过 `ResourcePreviewInput.parentReference` 传入实际目录引用。
+规则同时保存并校验父引用的 locator 和版本，以隔离相同资源 ID 下的账号或根目录配置变更；
+创建规则使用 `ConfirmedResourceMatchingRule.forParent`，从实际父引用填写所有作用域字段。
 未知 JSON 版本或无效规则由解码抛错，调用方展示规则不可用并回到普通建议，不得按默认规则静默继续。
 
 调用方必须加载扫描根范围内的全部已确认绑定和忽略记录，转换为 `ProtectedResourceDecision`。
