@@ -60,6 +60,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
+import me.him188.ani.app.ui.lang.Lang
+import me.him188.ani.app.ui.lang.main_screen_page_cache_management
 import me.him188.ani.app.data.network.AniApiProvider
 import me.him188.ani.app.data.network.AniCommentReportService
 import me.him188.ani.app.data.network.AniEpisodeCommentService
@@ -157,6 +159,7 @@ import me.him188.ani.utils.httpdownloader.HttpDownloader
 import me.him188.ani.utils.io.resolve
 import me.him188.ani.utils.logging.logger
 import me.him188.ani.utils.logging.warn
+import org.jetbrains.compose.resources.getString
 import org.koin.core.KoinApplication
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
@@ -389,6 +392,7 @@ private fun KoinApplication.otherModules(
 
         single<MediaDownloadManager> {
             val id = MediaDownloadManager.LOCAL_FS_MEDIA_SOURCE_ID
+            val localDownloadsName = runBlocking { getString(Lang.main_screen_page_cache_management) }
             val engines = get<TorrentManager>().engines
             val metadataStore = getContext().dataStores.mediaCacheMetadataStore
 
@@ -417,7 +421,7 @@ private fun KoinApplication.otherModules(
                                 },
                                 id,
                             ),
-                            displayName = "LocalByteCopies", parentCoroutineContext = coroutineScope.childScopeContext(),
+                            displayName = localDownloadsName, parentCoroutineContext = coroutineScope.childScopeContext(),
                         ),
                     )
                     for (engine in engines) {
@@ -434,7 +438,7 @@ private fun KoinApplication.otherModules(
                                     dao = database.torrentCacheInfoDao(),
                                     baseSaveDirProvider = get(),
                                 ),
-                                displayName = "LocalTorrent",
+                                displayName = localDownloadsName,
                                 parentCoroutineContext = coroutineScope.childScopeContext(),
                                 shareRatioLimitFlow = settingsRepository.anitorrentConfig.flow
                                     .map { it.shareRatioLimit },
@@ -448,7 +452,7 @@ private fun KoinApplication.otherModules(
                             store = metadataStore,
                             dao = database.httpCacheDownloadStateDao(),
                             httpEngine = get<HttpMediaCacheEngine>(),
-                            displayName = "LocalWebM3u",
+                            displayName = localDownloadsName,
                             coroutineScope.childScopeContext(),
                         ),
                     )
