@@ -20,7 +20,7 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import me.him188.ani.app.data.models.episode.displayName
 import me.him188.ani.app.domain.media.DroppedFileMedia
-import me.him188.ani.app.domain.mediasource.fileservice.FileServiceArguments
+import me.him188.ani.app.domain.mediasource.fileservice.FileServiceMediaSource
 import me.him188.ani.app.domain.mediasource.fileservice.FileServiceProtocol
 import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeTarget
 import me.him188.ani.app.domain.mediasource.library.ResourceFileIdentity
@@ -109,6 +109,7 @@ fun ResourceLibraryScreen(
                                 val browser = instance.source as? MediaSourceBrowser
                                 ListItem(
                                     headlineContent = { Text(instance.source.info.displayName) },
+                                    trailingContent = if (instance.source is FileServiceMediaSource) ({ TextButton({ viewModel.editFileService(instance.instanceId) }, enabled = !busy) { Text(stringResource(Lang.resource_edit)) } }) else null,
                                     supportingContent = { Text(stringResource(if (browser == null) Lang.resource_no_browser else if (instance.isEnabled) Lang.resource_enabled else Lang.resource_disabled)) },
                                     modifier = Modifier.clickable(enabled = browser != null) {
                                         viewModel.browser.open(instance.mediaSourceId, instance.source.info.displayName, browser!!)
@@ -146,12 +147,20 @@ fun ResourceLibraryScreen(
             }
         }, dismissButton = { TextButton({ pikpakAccount = false }) { Text(stringResource(Lang.resource_cancel)) } })
     }
+    val editor by viewModel.connectionEditor.collectAsStateWithLifecycle()
+    editor?.let { current ->
+        ResourceConnectionDialog(current.arguments.protocol,
+            onDismiss = { viewModel.connectionEditor.value = null },
+            onSave = { args, username, password, domain -> viewModel.updateFileService(current, args, username, password, domain) },
+            editor = current, saving = busy, hasError = error != null,
+            onRemove = { viewModel.removeFileService(current) })
+    }
     connection?.let { protocol ->
-        ResourceConnectionDialog(protocol, onDismiss = { connection = null }) { args, username, password, domain ->
+        ResourceConnectionDialog(protocol, onDismiss = { connection = null }, onSave = { args, username, password, domain ->
             viewModel.addFileService(args, username, password, domain)
             connection = null
             page = 1
-        }
+        })
     }
 }
 
@@ -255,36 +264,6 @@ internal fun ResourceBrowserContent(
 
 @Composable
 private fun ResourceEmptyText(text: String) { Text(text, modifier = Modifier.padding(24.dp)) }
-
-@Composable
-private fun ResourceConnectionDialog(
-    protocol: FileServiceProtocol,
-    onDismiss: () -> Unit,
-    onSave: (FileServiceArguments, String, String, String) -> Unit,
-) {
-    var name by remember { mutableStateOf(protocol.name) }
-    var endpoint by remember { mutableStateOf("") }
-    var share by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var domain by remember { mutableStateOf("") }
-    var invalid by remember { mutableStateOf(false) }
-    AlertDialog(onDismiss, title = { Text(stringResource(Lang.resource_add_connection)) }, text = {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Lang.resource_name)) }, singleLine = true) }
-            item { OutlinedTextField(endpoint, { endpoint = it }, label = { Text(stringResource(if (protocol == FileServiceProtocol.SMB) Lang.resource_host else Lang.resource_url)) }, singleLine = true) }
-            if (protocol == FileServiceProtocol.SMB) item { OutlinedTextField(share, { share = it }, label = { Text(stringResource(Lang.resource_share)) }, singleLine = true) }
-            item { OutlinedTextField(username, { username = it }, label = { Text(stringResource(Lang.resource_username)) }, singleLine = true) }
-            item { OutlinedTextField(password, { password = it }, label = { Text(stringResource(Lang.resource_password)) }, singleLine = true, visualTransformation = PasswordVisualTransformation()) }
-            if (protocol == FileServiceProtocol.SMB) item { OutlinedTextField(domain, { domain = it }, label = { Text(stringResource(Lang.resource_domain)) }, singleLine = true) }
-            if (invalid) item { Text(stringResource(Lang.resource_invalid_connection), color = MaterialTheme.colorScheme.error) }
-        }
-    }, confirmButton = { TextButton({
-        val args = try { FileServiceArguments(name.ifBlank { protocol.name }, protocol, endpoint.trim(), share.trim()) }
-        catch (_: IllegalArgumentException) { invalid = true; return@TextButton }
-        onSave(args, username, password, domain)
-    }) { Text(stringResource(Lang.resource_add)) } }, dismissButton = { TextButton(onDismiss) { Text(stringResource(Lang.resource_cancel)) } })
-}
 
 @Composable
 private fun ResourceAssociationDialog(viewModel: ResourceLibraryViewModel) {

@@ -52,4 +52,11 @@
     <string name="resource_associate_entry">關聯資源</string>
     <string name="resource_choose_other_video">選擇其他影片</string>
     <string name="resource_confirm_play">確認並播放</string>
+    <string name="resource_port">連接埠</string>
+    <string name="resource_root_path">子目錄（選填）</string>
+    <string name="resource_save">儲存</string>
+    <string name="resource_edit_connection">編輯連線</string>
+    <string name="resource_remove_connection">移除連線</string>
+    <string name="resource_remove_connection_description">移除 %1$s？資源關聯將保留，原始檔案與已下載副本不會刪除。</string>
+    <string name="resource_keep_password">同一帳號的密碼留空時保留已有密碼。</string>
 </resources>

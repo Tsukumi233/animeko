@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -20,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import me.him188.ani.app.data.models.preference.NsfwMode
 import me.him188.ani.app.data.models.preference.PikPakConfig
 import me.him188.ani.app.data.models.subject.SubjectCollectionInfo
@@ -57,6 +59,7 @@ import me.him188.ani.datasources.api.source.MediaSourceBrowser
 import me.him188.ani.datasources.api.source.MediaSourceConfig
 import me.him188.ani.datasources.api.source.MediaSourceEntry
 import me.him188.ani.datasources.api.source.MediaSourceEntryKind
+import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.utils.platform.Uuid
 import org.koin.mp.KoinPlatform
 
@@ -88,7 +91,8 @@ class ResourceLibraryViewModel(
     private val initialEpisodeId: Int? = null,
     private val initialFiles: List<String> = emptyList(),
 ) : AbstractViewModel() {
-    val sources = manager.allInstances.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
+    val sources = manager.allInstances.map { entries -> entries.filterNot { it.source.kind == MediaSourceKind.LocalCache } }
+        .stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val resources = library.resources.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val bindings = library.bindings.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val roots = library.dao.scanRoots().stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
@@ -97,6 +101,7 @@ class ResourceLibraryViewModel(
     val association = MutableStateFlow(ResourceAssociationUiState())
     val busy = MutableStateFlow(false)
     val error = MutableStateFlow<Throwable?>(null)
+    val connectionEditor = MutableStateFlow<ResourceConnectionEditor?>(null)
     val subjectQuery = MutableStateFlow("")
     val pendingPlayback = MutableStateFlow<ResourcePlaybackTarget?>(null)
     val willPlayOnConfirmation: Boolean get() = initialSubjectId != null && initialEpisodeId != null && selected.value.count {
@@ -305,6 +310,53 @@ class ResourceLibraryViewModel(
         } catch (e: Exception) {
             withContext(NonCancellable) { library.dao.removeCredentials(id) }
             throw e
+        }
+    }
+
+    fun editFileService(instanceId: String) = action {
+        val save = instances.flow.first().single { it.instanceId == instanceId }
+        require(save.factoryId == FileServiceMediaSource.FactoryId)
+        val args = Json.decodeFromJsonElement<FileServiceArguments>(requireNotNull(save.config.serializedArguments))
+        val credentials = library.dao.credentials(save.mediaSourceId)
+        connectionEditor.value = ResourceConnectionEditor(save, args, credentials?.username.orEmpty(), credentials?.domain.orEmpty())
+    }
+
+    fun updateFileService(editor: ResourceConnectionEditor, args: FileServiceArguments, username: String, password: String, domain: String) = action {
+        sourceWrites.withLock {
+            val original = requireNotNull(instances.flow.first().singleOrNull { it.instanceId == editor.save.instanceId })
+            check(original == editor.save) { "Connection changed while editing" }
+            val credentials = library.dao.credentials(original.mediaSourceId)
+            val sameAccount = credentials?.username.orEmpty() == username && credentials?.domain.orEmpty() == domain
+            val updated = LibrarySourceCredentialsEntity(original.mediaSourceId, username,
+                password.ifEmpty { if (sameAccount) credentials?.password.orEmpty() else "" }, domain)
+            library.dao.saveCredentials(updated)
+            try {
+                check(instances.updateSave(original.instanceId) {
+                    check(this == original) { "Connection changed while editing" }
+                    copy(config = config.copy(serializedArguments = Json.encodeToJsonElement(args)))
+                }) { "Connection was removed" }
+            } catch (e: Exception) {
+                withContext(NonCancellable) {
+                    if (credentials == null) library.dao.removeCredentials(original.mediaSourceId)
+                    else library.dao.saveCredentials(credentials)
+                }
+                throw e
+            }
+            if (browser.state.value.sourceId == original.mediaSourceId) browser.close()
+            selected.update { inputs -> inputs.filterNot { it.identity.sourceId == original.mediaSourceId } }
+            connectionEditor.value = null
+        }
+    }
+
+    fun removeFileService(editor: ResourceConnectionEditor) = action {
+        sourceWrites.withLock {
+            val save = instances.flow.first().singleOrNull { it.instanceId == editor.save.instanceId }
+            check(save == editor.save) { "Connection changed while editing" }
+            instances.remove(editor.save.instanceId)
+            library.dao.removeCredentials(editor.save.mediaSourceId)
+            if (browser.state.value.sourceId == editor.save.mediaSourceId) browser.close()
+            selected.update { inputs -> inputs.filterNot { it.identity.sourceId == editor.save.mediaSourceId } }
+            connectionEditor.value = null
         }
     }
 
