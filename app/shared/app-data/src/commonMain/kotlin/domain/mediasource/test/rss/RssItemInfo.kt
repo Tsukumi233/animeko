@@ -89,6 +89,7 @@ class RssItemInfo(
                 is ResourceLocation.HttpStreamingFile -> emit("Streaming")
                 is ResourceLocation.HttpTorrentFile -> emit("Torrent")
                 is ResourceLocation.LocalFile -> emit("Local")
+                is ResourceLocation.SourceResource -> emit("Source")
                 is ResourceLocation.MagnetLink -> emit("Magnet")
                 is ResourceLocation.WebVideo -> emit("WEB")
                 null -> emit("Download", isMissing = true)
