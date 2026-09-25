@@ -56,6 +56,7 @@ class EpisodeSession(
     parentCoroutineContext: CoroutineContext,
     sharingStarted: SharingStarted = SharingStarted.WhileSubscribed(),
     fetchSessions: SubjectMediaFetchSessions? = null,
+    includeAllEpisodes: Boolean = false,
 ) {
     private val createMediaFetchSelectBundleFlowUseCase: CreateMediaFetchSelectBundleFlowUseCase by koin.inject()
 
@@ -78,6 +79,7 @@ class EpisodeSession(
         subjectId,
         flowOf(episodeId), // single element, so infoBundleFlow may complete.
         koin,
+        includeAllEpisodes,
     )
 
     /**

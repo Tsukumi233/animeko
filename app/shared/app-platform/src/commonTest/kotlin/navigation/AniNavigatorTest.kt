@@ -25,6 +25,15 @@ class AniNavigatorTest {
     private val main = NavRoutes.Main(MainScreenPage.Exploration)
 
     @Test
+    fun `explicit library playback replaces same episode route independent of resource identity`() {
+        val navigator = navigatorWith(main, NavRoutes.EpisodeDetail(1, 11, "old"), NavRoutes.Settings())
+        navigator.navigateEpisodeDetails(1, 11, libraryResourceId = "chosen")
+        assertEquals(listOf(main, NavRoutes.EpisodeDetail(1, 11, "chosen")), navigator.backStack)
+        navigator.navigateEpisodeDetails(1, 11)
+        assertEquals(listOf(main, NavRoutes.EpisodeDetail(1, 11)), navigator.backStack)
+    }
+
+    @Test
     fun `navigate pushes onto the stack`() {
         val navigator = navigatorWith(main)
         navigator.navigateSettings(SettingsTab.PLAYER)

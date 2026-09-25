@@ -24,7 +24,8 @@ import kotlin.coroutines.CoroutineContext
 fun interface GetSubjectEpisodeInfoBundleFlowUseCase : UseCase {
     data class SubjectIdAndEpisodeId(
         val subjectId: Int,
-        val episodeId: Int
+        val episodeId: Int,
+        val includeAllEpisodes: Boolean = false,
     )
 
     operator fun invoke(idsFlow: Flow<SubjectIdAndEpisodeId>): Flow<SubjectEpisodeInfoBundle>
@@ -36,10 +37,12 @@ class GetSubjectEpisodeInfoBundleFlowUseCaseImpl(
     private val subjectCollectionRepository: SubjectCollectionRepository by inject()
 
     override fun invoke(idsFlow: Flow<GetSubjectEpisodeInfoBundleFlowUseCase.SubjectIdAndEpisodeId>): Flow<SubjectEpisodeInfoBundle> {
-        return idsFlow.flatMapLatest { (subjectId, episodeId) ->
+        return idsFlow.flatMapLatest { (subjectId, episodeId, includeAllEpisodes) ->
             // 这里只需要查询一个网络请求 — subject collection. 
 
-            subjectCollectionRepository.subjectCollectionFlow(subjectId).map { subject ->
+            val subjects = if (includeAllEpisodes) subjectCollectionRepository.librarySubjectCollectionFlow(subjectId)
+            else subjectCollectionRepository.subjectCollectionFlow(subjectId)
+            subjects.map { subject ->
                 val episodeCollectionInfo = (subject.episodes.find { it.episodeId == episodeId }
                     ?: throw NoSuchElementException("Episode $episodeId not found in subject $subjectId"))
                 SubjectEpisodeInfoBundle(

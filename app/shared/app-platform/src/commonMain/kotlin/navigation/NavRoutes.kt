@@ -110,6 +110,7 @@ sealed class NavRoutes : NavKey {
     data class EpisodeDetail(
         val subjectId: Int,
         val episodeId: Int,
+        val libraryResourceId: String? = null,
     ) : NavRoutes()
 
     @Serializable

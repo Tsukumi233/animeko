@@ -36,6 +36,23 @@ import kotlin.test.assertNotNull
 class SubjectEpisodeInfoBundleTest {
     private val subjectId = 1
 
+    @Test
+    fun `explicit library playback requests unfiltered episode metadata`() = runTest {
+        val suite = createSuite()
+        var requestedAllEpisodes = false
+        suite.registerComponent<GetSubjectEpisodeInfoBundleFlowUseCase> {
+            GetSubjectEpisodeInfoBundleFlowUseCase { requests ->
+                requests.map { request ->
+                    requestedAllEpisodes = request.includeAllEpisodes
+                    createTestSubjectEpisodeInfoBundle(request.subjectId, request.episodeId)
+                }
+            }
+        }
+        val state = SubjectEpisodeInfoBundleLoader(subjectId, flowOf(12), suite.koin, includeAllEpisodes = true)
+        assertEquals(12, state.infoBundleFlow.filterNotNull().first().episodeId)
+        assertEquals(true, requestedAllEpisodes)
+    }
+
     private fun EpisodePlayerTestSuite.createState(episodeIdFlow: Flow<Int>): SubjectEpisodeInfoBundleLoader {
         return SubjectEpisodeInfoBundleLoader(subjectId, episodeIdFlow, koin)
     }

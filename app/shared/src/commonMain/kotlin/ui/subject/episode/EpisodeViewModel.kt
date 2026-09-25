@@ -119,6 +119,9 @@ import me.him188.ani.app.domain.settings.GetMediaSelectorSettingsUseCase
 import me.him188.ani.app.domain.usecase.GlobalKoin
 import me.him188.ani.app.domain.watchtogether.PlaybackAutomationGate
 import me.him188.ani.app.navigation.EpisodeNavigationGuardRegistry
+import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
+import me.him188.ani.app.domain.mediasource.library.LibraryResourcePlaybackRequest
+import me.him188.ani.app.domain.mediasource.library.resolveForPlayback
 import me.him188.ani.app.platform.Context
 import me.him188.ani.app.ui.comment.BangumiCommentSticker
 import me.him188.ani.app.ui.comment.CommentEditorState
@@ -283,6 +286,7 @@ open class EpisodeViewModel(
     context: Context,
     val getCurrentDate: () -> PackedDate = { PackedDate.now() },
     private val koin: Koin = GlobalKoin,
+    initialLibraryResourceId: String? = null,
 ) : KoinComponent, AbstractViewModel(), HasBackgroundScope {
     // region dependencies
     private val playerStateFactory: MediampPlayerFactory<*> by inject()
@@ -344,6 +348,15 @@ open class EpisodeViewModel(
         override ?: config.playbackSpeed
     }.distinctUntilChanged()
 
+    private val libraryPlaybackRequest = initialLibraryResourceId?.let { resourceId ->
+        LibraryResourcePlaybackRequest(initialEpisodeId,
+            resolve = { koin.get<ResourceLibraryRepository>().resolveForPlayback(resourceId, subjectId, initialEpisodeId) },
+            sourceExists = { sourceId -> mediaSourceManager.allInstances.first().any { it.mediaSourceId == sourceId } },
+        )
+    }
+
+    val libraryPlaybackError get() = libraryPlaybackRequest?.error
+
     @OptIn(UnsafeEpisodeSessionApi::class)
     protected val fetchPlayState = EpisodeFetchSelectPlayState(
         subjectId, initialEpisodeId, player, backgroundScope,
@@ -373,7 +386,9 @@ open class EpisodeViewModel(
                 },
             ),
             SwitchMediaOnPlayerErrorExtension,
-            AutoSelectExtension,
+            AutoSelectExtension.Factory { episodeId, selector ->
+                libraryPlaybackRequest?.selectForEpisode(episodeId, selector) ?: false
+            },
             SaveMediaPreferenceExtension,
             ObserveWebMediaSourcePreferenceExtension,
         ),
@@ -384,6 +399,7 @@ open class EpisodeViewModel(
                 return withContext(Dispatchers.Main) { this@EpisodeViewModel.isFullscreen }
             }
         },
+        includeAllEpisodes = initialLibraryResourceId != null,
     )
 
     val mediaResolver: MediaResolver get() = fetchPlayState.playerSession.mediaResolver

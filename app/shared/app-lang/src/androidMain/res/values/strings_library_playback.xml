@@ -1,0 +1,5 @@
+<resources>
+    <string name="library_playback_missing_binding">This resource is no longer associated with this episode.</string>
+    <string name="library_playback_source_unavailable">The resource source is unavailable. Check its connection settings.</string>
+    <string name="library_playback_invalid_reference">Unable to open this saved resource. Browse the source and associate it again.</string>
+</resources>

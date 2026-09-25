@@ -1,0 +1,5 @@
+<resources>
+    <string name="library_playback_missing_binding">此资源已不再关联到当前剧集。</string>
+    <string name="library_playback_source_unavailable">资源来源不可用，请检查连接设置。</string>
+    <string name="library_playback_invalid_reference">无法打开此资源，请浏览来源并重新关联。</string>
+</resources>

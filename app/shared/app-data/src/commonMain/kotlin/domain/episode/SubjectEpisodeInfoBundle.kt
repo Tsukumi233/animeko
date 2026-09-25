@@ -104,6 +104,7 @@ class SubjectEpisodeInfoBundleLoader(
     subjectId: Int,
     episodeIdFlow: Flow<Int>,
     koin: Koin,
+    includeAllEpisodes: Boolean = false,
 ) {
     /**
      * Underlying use case for fetching the flow of [SubjectEpisodeInfoBundle].
@@ -131,7 +132,7 @@ class SubjectEpisodeInfoBundleLoader(
      * The flow does not complete. Even if the [episodeIdFlow] completes, this flow will NOT complete, as you may still call [restart].
      */
     val infoBundleFlow: Flow<SubjectEpisodeInfoBundle?> =
-        episodeIdFlow.map { GetSubjectEpisodeInfoBundleFlowUseCase.SubjectIdAndEpisodeId(subjectId, it) }
+        episodeIdFlow.map { GetSubjectEpisodeInfoBundleFlowUseCase.SubjectIdAndEpisodeId(subjectId, it, includeAllEpisodes) }
             .transformLatest { request ->
                 // Clear previous state or results
                 emit(null)

@@ -100,13 +100,16 @@ interface AniNavigator {
         episodeId: Int,
         fullscreen: Boolean = false,
         force: Boolean = false,
+        libraryResourceId: String? = null,
     ) {
         if (!force && !EpisodeNavigationGuardRegistry.checkOrNotifyDenied(subjectId, episodeId)) {
             return
         }
         // 避免同一个剧集在栈中重复出现
-        popBackStack(NavRoutes.EpisodeDetail(subjectId, episodeId), inclusive = true)
-        navigate(NavRoutes.EpisodeDetail(subjectId, episodeId))
+        backStack.lastOrNull {
+            it is NavRoutes.EpisodeDetail && it.subjectId == subjectId && it.episodeId == episodeId
+        }?.let { popBackStack(it, inclusive = true) }
+        navigate(NavRoutes.EpisodeDetail(subjectId, episodeId, libraryResourceId))
         Analytics.recordEvent(
             EpisodeEnter,
             mapOf("subject_id" to subjectId, "episode_id" to episodeId),

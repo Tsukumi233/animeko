@@ -10,7 +10,6 @@
 package me.him188.ani.app.domain.player.extension
 
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.flatMapLatest
 import me.him188.ani.app.domain.episode.EpisodeSession
 import me.him188.ani.app.domain.media.selector.MediaSelector
 import me.him188.ani.app.domain.media.selector.MediaSelectorAutoSelectUseCase
@@ -23,7 +22,8 @@ import org.koin.core.Koin
  */
 class AutoSelectExtension(
     private val context: PlayerExtensionContext,
-    koin: Koin
+    koin: Koin,
+    private val explicitSelection: suspend (Int, MediaSelector) -> Boolean = { _, _ -> false },
 ) : PlayerExtension("AutoSelect") {
     private val mediaSelectorAutoSelectUseCase: MediaSelectorAutoSelectUseCase by koin.inject()
 
@@ -32,8 +32,9 @@ class AutoSelectExtension(
         backgroundTaskScope: ExtensionBackgroundTaskScope
     ) {
         backgroundTaskScope.launch("AutoSelect") {
-            context.sessionFlow.flatMapLatest { it.fetchSelectFlow }.collectLatest { fetchSelect ->
+            episodeSession.fetchSelectFlow.collectLatest { fetchSelect ->
                 if (fetchSelect == null) return@collectLatest
+                if (explicitSelection(episodeSession.episodeId, fetchSelect.mediaSelector)) return@collectLatest
                 mediaSelectorAutoSelectUseCase(fetchSelect.mediaFetchSession, fetchSelect.mediaSelector)
             }
         }
@@ -43,5 +44,9 @@ class AutoSelectExtension(
         override fun create(context: PlayerExtensionContext, koin: Koin): AutoSelectExtension {
             return AutoSelectExtension(context, koin)
         }
+    }
+
+    class Factory(private val explicitSelection: suspend (Int, MediaSelector) -> Boolean) : EpisodePlayerExtensionFactory<AutoSelectExtension> {
+        override fun create(context: PlayerExtensionContext, koin: Koin) = AutoSelectExtension(context, koin, explicitSelection)
     }
 }

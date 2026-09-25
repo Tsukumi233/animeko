@@ -137,6 +137,11 @@ import me.him188.ani.app.ui.foundation.theme.LocalThemeSettings
 import me.him188.ani.app.ui.foundation.theme.isSystemInDarkThemeDetected
 import me.him188.ani.app.ui.foundation.theme.weaken
 import me.him188.ani.app.ui.foundation.widgets.LocalToaster
+import me.him188.ani.app.domain.mediasource.library.LibraryResourcePlaybackError
+import me.him188.ani.app.ui.lang.library_playback_missing_binding
+import me.him188.ani.app.ui.lang.library_playback_source_unavailable
+import me.him188.ani.app.ui.lang.library_playback_invalid_reference
+import org.jetbrains.compose.resources.getString
 import me.him188.ani.app.ui.foundation.widgets.showLoadError
 import me.him188.ani.app.ui.lang.Lang
 import me.him188.ani.app.ui.lang.episode_comments
@@ -220,6 +225,18 @@ private fun EpisodeScreenContent(
     modifier: Modifier = Modifier,
     windowInsets: WindowInsets = ScaffoldDefaults.contentWindowInsets,
 ) {
+    val resourcePlaybackToaster = LocalToaster.current
+    LaunchedEffect(vm) {
+        vm.libraryPlaybackError?.collect { error ->
+            val message = when (error) {
+                LibraryResourcePlaybackError.MISSING_BINDING -> Lang.library_playback_missing_binding
+                LibraryResourcePlaybackError.SOURCE_UNAVAILABLE -> Lang.library_playback_source_unavailable
+                LibraryResourcePlaybackError.INVALID_REFERENCE -> Lang.library_playback_invalid_reference
+                null -> null
+            }
+            if (message != null) resourcePlaybackToaster.toast(getString(message))
+        }
+    }
     // 处理当用户点击返回键时, 如果是全屏, 则退出全屏
     // 按返回退出全屏
     val context by rememberUpdatedState(LocalContext.current)

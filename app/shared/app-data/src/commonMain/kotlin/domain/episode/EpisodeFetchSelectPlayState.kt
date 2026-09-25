@@ -89,6 +89,7 @@ class EpisodeFetchSelectPlayState(
     private val sharingStarted: SharingStarted = SharingStarted.WhileSubscribed(),
     private val mainDispatcher: CoroutineContext = Dispatchers.Main.immediate,
     private val analyticsContext: AnalyticsContext = object : AnalyticsContext {},
+    private val includeAllEpisodes: Boolean = false,
 ) {
     interface AnalyticsContext {
         suspend fun isFullscreen(): Boolean? = false
@@ -215,6 +216,7 @@ class EpisodeFetchSelectPlayState(
         backgroundScope.coroutineContext,
         sharingStarted,
         fetchSessions,
+        includeAllEpisodes,
     )
 
     private val uiReady = CompletableDeferred<Unit>()

@@ -373,6 +373,7 @@ private fun AniAppContentImpl(
                         initialEpisodeId = route.episodeId,
                         initialIsFullscreen = false,
                         context,
+                        initialLibraryResourceId = route.libraryResourceId,
                     )
                 }
                 EpisodeScreen(vm, Modifier.fillMaxSize(), windowInsets)
