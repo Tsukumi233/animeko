@@ -158,6 +158,7 @@ data class MatchMetadata(
         /**
          * media 识别到了精准的 sort 或 ep, 并且完全匹配正在观看的 [sort][EpisodeInfo.sort].
          * 注意, 这不包含匹配 [EpisodeInfo.ep], 因为我们无法在第二季时根据 ep 区分是否正确.
+         * 已确认绑定到当前剧集 ID 的资源具有同等匹配精度，不依赖文件名集号。
          */
         SORT,
     }

@@ -10,14 +10,20 @@
 package me.him188.ani.app.ui.mediafetch
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import me.him188.ani.app.data.models.preference.MediaPreference
+import me.him188.ani.app.data.models.episode.EpisodeInfo
+import me.him188.ani.app.data.models.subject.SubjectInfo
+import me.him188.ani.app.domain.media.TestMediaList
 import me.him188.ani.app.data.models.preference.MediaSelectorSettings
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchResult
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
@@ -28,6 +34,9 @@ import me.him188.ani.app.domain.mediasource.web.SolveRequest
 import me.him188.ani.app.domain.mediasource.web.WebCaptchaKind
 import me.him188.ani.app.domain.mediasource.web.captcha.createTestWebSessionManager
 import me.him188.ani.datasources.api.Media
+import me.him188.ani.datasources.api.MediaAssociation
+import me.him188.ani.datasources.api.source.MediaResourceRef
+import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.datasources.api.source.MediaSourceInfo
 import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.utils.platform.annotations.TestOnly
@@ -39,6 +48,34 @@ import kotlin.test.assertTrue
 
 @OptIn(TestOnly::class)
 class MediaSelectorCaptchaStateTest {
+    @Test
+    fun `simple mode exposes each confirmed personal file version and hides other episodes`() = runTest {
+        for (kind in listOf(MediaSourceKind.LocalFile, MediaSourceKind.FileService, MediaSourceKind.CloudDrive)) {
+            val stateScope = CoroutineScope(backgroundScope.coroutineContext + SupervisorJob())
+            val files = (1..3).map { number -> TestMediaList.first().copy(
+                mediaId = "file-$number", mediaSourceId = "source-1", kind = kind, originalTitle = "version-$number.mkv",
+                download = ResourceLocation.SourceResource(MediaResourceRef("source-1", "file-$number")),
+                association = MediaAssociation("1", listOf(if (number == 3) "12" else "11")),
+                properties = TestMediaList.first().properties.copy(alliance = "", subtitleLanguageIds = emptyList()),
+            ) }
+            try {
+                val state = createState(
+                    listOf(FakeMediaSourceFetchResult(kind = kind, initialState = MediaSourceFetchState.Succeed(1))), stateScope, files,
+                    MediaSelectorContext.EmptyForPreview.copy(subjectInfo = SubjectInfo.Empty.copy(subjectId = 1), episodeInfo = EpisodeInfo.Empty.copy(episodeId = 11)),
+                )
+                val presentation = try {
+                    withContext(Dispatchers.Default) {
+                        withTimeout(5_000) { state.presentationFlow.first { it.webSources.singleOrNull()?.channels?.size == 2 } }
+                    }
+                } catch (e: Exception) {
+                    throw AssertionError("$kind: exclusions=${state.presentationFlow.value.filteredCandidates.map { it.exclusionReason }}, sources=${state.presentationFlow.value.webSources}", e)
+                }
+                val source = presentation.webSources.single()
+                assertEquals(setOf("file-1", "file-2"), source.channels.mapNotNull { it.original?.mediaId }.toSet())
+                assertEquals(setOf("version-1.mkv", "version-2.mkv"), source.channels.map { it.name }.toSet())
+            } finally { stateScope.cancel() }
+        }
+    }
     private fun solveRequest(kind: WebCaptchaKind) = SolveRequest(
         mediaSourceId = "source-1",
         pageUrl = "https://example.com/search",
@@ -138,10 +175,11 @@ class MediaSelectorCaptchaStateTest {
         sourceResults: List<MediaSourceFetchResult>,
         backgroundScope: CoroutineScope,
         mediaList: List<Media> = emptyList(),
+        context: MediaSelectorContext = MediaSelectorContext.EmptyForPreview,
     ): MediaSelectorState {
         return MediaSelectorState(
             mediaSelector = DefaultMediaSelector(
-                mediaSelectorContextNotCached = flowOf(MediaSelectorContext.EmptyForPreview),
+                mediaSelectorContextNotCached = flowOf(context),
                 mediaListNotCached = MutableStateFlow(mediaList),
                 savedUserPreference = flowOf(MediaPreference.Empty),
                 savedDefaultPreference = flowOf(MediaPreference.Empty),

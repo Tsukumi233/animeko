@@ -233,7 +233,10 @@ class MediaSelectorState(
             if (results.isEmpty()) return@flatMapLatest flowOfEmptyList()
 
             // 按顺序排序
-            val sorted = results.filter { it.kind == MediaSourceKind.WEB } // 只使用 WEB
+            val sorted = results.filter {
+                it.kind == MediaSourceKind.WEB || it.kind == MediaSourceKind.LocalFile ||
+                        it.kind == MediaSourceKind.FileService || it.kind == MediaSourceKind.CloudDrive
+            }
 
             // 监控状态, 把错误的放到最后
             combine(results.map { it.state }) { states ->
@@ -298,9 +301,9 @@ class MediaSelectorState(
         delayToOvercomeCacheIssue: Boolean,
         resolvingCaptchaInstanceIds: Set<String>,
     ) = source.state.combine(preferredWebMediaSource) { a, b -> a to b }.map { (state, preferred) ->
-        // 每条线路一个芯片: 同一线路的多个资源取排序靠前的一个.
-        val channels = myMediaList.distinctBy { it.properties.alliance }.map { media ->
-            WebSourceChannel(media.properties.alliance, original = media)
+        // 网站每条线路显示排序靠前的资源；个人来源逐个展示文件版本。
+        val channels = myMediaList.distinctBy { if (source.kind == MediaSourceKind.WEB) it.properties.alliance else it.mediaId }.map { media ->
+            WebSourceChannel(if (source.kind == MediaSourceKind.WEB) media.properties.alliance else media.originalTitle, original = media)
         }.toList()
         val captchaRequest = (state as? MediaSourceFetchState.CaptchaRequired)?.request
         val rateLimitedUntil = (state as? MediaSourceFetchState.RateLimited)?.retryAt

@@ -176,7 +176,13 @@ class MediaSelectorFilterSortAlgorithm {
                     context.episodeInfo?.sort,
                     context.episodeInfo?.ep,
                 ).let { metadata ->
-                    if (confirmed) metadata.copy(subjectMatchKind = MatchMetadata.SubjectMatchKind.EXACT, similarity = 100)
+                    if (confirmed) metadata.copy(
+                        subjectMatchKind = MatchMetadata.SubjectMatchKind.EXACT,
+                        episodeMatchKind = if (context.episodeInfo?.episodeId?.toString() in association!!.episodeIds) {
+                            MatchMetadata.EpisodeMatchKind.SORT
+                        } else metadata.episodeMatchKind,
+                        similarity = 100,
+                    )
                     else metadata
                 },
             )
