@@ -34,3 +34,28 @@ SP/OVA 与正片保持各自的 `EpisodeSort` 类型。多个季度具有相同�
 再构造 `ResourceFileIdentity`；不能仅用旧路径查找保护记录。
 预览是快照：实际提交自动项前，仓储应在事务中重新检查扫描版本、绑定和忽略状态，避免过期预览覆盖手工修改。
 只有 `AUTO_ASSIGNABLE` 可参与规则驱动提交，其余待处理状态均需要用户确认。
+
+## 持久化规则与扫描提交
+
+UI 在展示适用目录、标题限制和集号映射并得到明确确认后，调用
+`ConfirmScanMatchingRulesUseCase.confirm(rootId, rules)`；移除使用 `remove(rootId)`。
+用例核验根引用的 sourceId、resourceId、locator、version 及缓存中的完整剧集目录。
+一个规则集仅适用于该扫描根；子目录需要另建扫描根，递归扫描本身不扩展规则作用域。
+规则保存或移除会使该根的在途扫描失效，陈旧的确认快照不能覆盖已变更的根。
+
+`ResourceLibraryScanner.scan(root, browser)` 要求根已保存。它完整遍历分页，递归时传递实际父引用，
+BT 使用 `TorrentResourceBrowser` 的元数据文件列表，并以原发布引用加完整文件路径作为预览输入。
+重复身份但内容不一致的页面视为枚举失败。取消、分页失败、元数据失败均保留已有缺失判断。
+首次成功扫描只保存建议；存在上次完整扫描记录时，才允许应用用户确认的规则。
+
+`ApplyScanMatchingRulesUseCase` 加载同来源全部绑定与忽略项，防止另一个扫描根中的已确认版本被自动竞争。
+`AssociateResourcesUseCase.prepare` 先准备完整元数据及候选，随后仓储在 Room 事务内核验扫描令牌、
+根配置、资源引用和元数据、同来源绑定与建议快照，最后一次写入绑定、建议及完成状态。
+人工关联、纠正、忽略、解除关联或移除资源在成功事务内使同来源在途扫描失效；准备失败不影响扫描。
+并发扫描的自动提交还会检查已占用的同来源目标，不能覆盖人工选择或提交竞争版本。
+
+建议保存在 `LibraryMatchSuggestion.suggestionJson` 的 `StoredScanMatchSuggestions` 中。
+`rows` 包含文件路径、识别标题、类型化集号、目标、状态和实际父引用；`paths` 保存逐文件忽略集合，
+与 `LibraryIgnoredFiles` 兼容，同一 BT 发布内可同时保留忽略文件与其他文件的关联建议。
+未知版本、作用域失配或目标不可用的规则停止自动关联，并将规则错误保留在扫描根上；
+普通建议扫描成功不会清除此错误。用户修复或移除规则后方可消除提示。

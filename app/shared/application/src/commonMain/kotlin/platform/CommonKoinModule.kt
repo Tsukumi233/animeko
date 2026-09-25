@@ -31,6 +31,8 @@ import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSource
 
 import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanner
 import me.him188.ani.app.domain.mediasource.library.AssociateResourcesUseCase
+import me.him188.ani.app.domain.mediasource.library.ApplyScanMatchingRulesUseCase
+import me.him188.ani.app.domain.mediasource.library.ConfirmScanMatchingRulesUseCase
 import me.him188.ani.app.domain.mediasource.torrent.TorrentResourceBrowser
 import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
 
@@ -469,7 +471,9 @@ private fun KoinApplication.otherModules(
         }
     }
     single<LocalResourceAccess> { createLocalResourceAccess(getContext()) }
-    single { ResourceLibraryScanner(get()) }
+    single { ConfirmScanMatchingRulesUseCase(get(), get()) }
+    single { ApplyScanMatchingRulesUseCase(get(), get(), get()) }
+    single { ResourceLibraryScanner(get(), get()) { get<TorrentResourceBrowser>().browse(it).files } }
     single { TorrentResourceBrowser({ get<TorrentManager>().engines.firstOrNull { it.isSupported } }, get()) }
     single {
         AssociateResourcesUseCase(get(), get()) {
