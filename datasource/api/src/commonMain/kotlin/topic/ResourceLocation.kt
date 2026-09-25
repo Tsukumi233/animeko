@@ -10,11 +10,18 @@
 package me.him188.ani.datasources.api.topic
 
 import kotlinx.serialization.Serializable
+import me.him188.ani.datasources.api.source.MediaResourceRef
 
 
 @Serializable
 sealed class ResourceLocation {
     abstract val uri: String
+
+    /** 使用来源的长期引用，在播放或下载时解析访问权限和临时地址。 */
+    @Serializable
+    data class SourceResource(val reference: MediaResourceRef) : ResourceLocation() {
+        override val uri: String get() = reference.locator
+    }
 
     /**
      * BT 磁力链, 需要使用 BT 引擎下载.

@@ -34,12 +34,21 @@ enum class MediaSourceKind {
      *
      * 该类型的资源总是会显示, 忽略一切过滤条件.
      */
-    LocalCache;
+    LocalCache,
+
+    /** 用户选择的本地文件或目录。 */
+    LocalFile,
+
+    /** WebDAV、SMB 等文件服务。 */
+    FileService,
+
+    /** 用户账号中的网盘文件。 */
+    CloudDrive;
 
     companion object {
         /**
          * 除本地缓存这种特殊类型外, 用户可以选择的数据源类型.
          */
-        val selectableEntries = listOf(WEB, BitTorrent)
+        val selectableEntries = listOf(WEB, BitTorrent, LocalFile, FileService, CloudDrive)
     }
 }
