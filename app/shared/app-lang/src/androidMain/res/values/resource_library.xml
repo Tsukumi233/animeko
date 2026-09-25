@@ -59,4 +59,5 @@
     <string name="resource_remove_connection">Remove connection</string>
     <string name="resource_remove_connection_description">Remove %1$s? Resource associations remain saved. Files and managed downloads are kept.</string>
     <string name="resource_keep_password">Leave the password empty to keep it for the same account.</string>
+    <string name="resource_no_subject_results">No shows found. Try another title.</string>
 </resources>

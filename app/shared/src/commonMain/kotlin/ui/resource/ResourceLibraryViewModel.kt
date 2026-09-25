@@ -5,10 +5,13 @@ import androidx.paging.cachedIn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -108,9 +111,10 @@ class ResourceLibraryViewModel(
         it.identity !in association.value.ignored && association.value.targets[it.identity] == ResourceEpisodeTarget(initialSubjectId, initialEpisodeId)
     } == 1
     val pikpakConfig = settings.pikpakConfig.flow.stateIn(backgroundScope, SharingStarted.Eagerly, PikPakConfig.Default)
-    val subjectResults = combine(subjectQuery, settings.uiSettings.flow) { keyword, ui ->
+    @OptIn(FlowPreview::class)
+    val subjectResults = combine(subjectQuery.debounce(300), settings.uiSettings.flow) { keyword, ui ->
         SubjectSearchQuery(keyword, nsfw = if (ui.searchSettings.nsfwMode == NsfwMode.HIDE) false else null)
-    }.flatMapLatest { query ->
+    }.distinctUntilChanged().flatMapLatest { query ->
         if (query.keywords.isBlank()) flowOf(PagingData.empty()) else search.searchSubjects(query)
     }.cachedIn(backgroundScope)
     private val sourceWrites = Mutex()

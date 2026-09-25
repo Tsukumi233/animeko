@@ -280,7 +280,13 @@ private fun ResourceAssociationDialog(viewModel: ResourceLibraryViewModel) {
                 OutlinedTextField(query, { viewModel.subjectQuery.value = it; showResults = true }, label = { Text(stringResource(Lang.resource_search_subject)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 LazyColumn(Modifier.weight(1f, fill = false)) {
                     if (results.loadState.refresh is LoadState.Loading || state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-                    if (results.loadState.refresh is LoadState.Error || state.error != null) item { Text(stringResource(Lang.resource_load_failed), color = MaterialTheme.colorScheme.error) }
+                    if (results.loadState.refresh is LoadState.Error || state.error != null) item {
+                        Text(stringResource(Lang.resource_load_failed), color = MaterialTheme.colorScheme.error)
+                        TextButton({ showResults = true; results.retry() }) { Text(stringResource(Lang.resource_refresh)) }
+                    }
+                    if (showResults && query.isNotBlank() && results.itemCount == 0 && results.loadState.refresh is LoadState.NotLoading) item {
+                        Text(stringResource(Lang.resource_no_subject_results))
+                    }
                     if (showResults) items(results.itemCount) { index -> results[index]?.subjectInfo?.let { subject ->
                         ListItem(headlineContent = { Text(subject.displayName) }, modifier = Modifier.clickable(enabled = !state.loading && !state.saving) { showResults = false; viewModel.chooseSubject(subject.subjectId) })
                     } }
