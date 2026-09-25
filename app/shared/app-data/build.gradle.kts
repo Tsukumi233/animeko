@@ -84,6 +84,9 @@ kotlin {
     sourceSets.getByName("jvmTest").dependencies {
         implementation(libs.slf4j.simple)
     }
+    sourceSets.getByName("jvmMain").dependencies {
+        implementation("com.hierynomus:smbj:0.14.0")
+    }
     sourceSets.desktopMain {
         dependencies {
             implementation(libs.onnxruntime)
