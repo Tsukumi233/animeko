@@ -917,8 +917,8 @@ open class EpisodeViewModel(
         }.launchIn(this)
 
         val filteredSourceResults = MediaSourceResultsFilterer(
-            results = episodeSession.fetchSelectFlow.map {
-                it?.mediaFetchSession?.mediaSourceResults ?: emptyList()
+            results = episodeSession.fetchSelectFlow.flatMapLatest {
+                it?.mediaFetchSession?.mediaSourceResultsFlow ?: flowOf(emptyList())
             },
             settings = settingsRepository.mediaSelectorSettings.flow,
             flowScope = this,
