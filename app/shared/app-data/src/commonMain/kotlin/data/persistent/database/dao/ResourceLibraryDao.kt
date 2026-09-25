@@ -89,6 +89,16 @@ data class LibraryMatchSuggestionEntity(
     val ignored: Boolean = false,
 )
 
+/** A read-consistent source snapshot used to confirm relocation without overwriting later decisions. */
+data class LibraryRelocationSnapshot(
+    val sourceId: String,
+    val resources: List<LibraryResourceEntity>,
+    val bindings: List<LibraryEpisodeBindingEntity>,
+    val suggestions: List<LibraryMatchSuggestionEntity>,
+    val roots: List<LibraryScanRootEntity>,
+    val scanEntries: List<LibraryScanEntryEntity>,
+)
+
 @Dao
 abstract class ResourceLibraryDao {
     @Query("SELECT * FROM library_source_credentials WHERE sourceId = :sourceId")
@@ -346,4 +356,59 @@ abstract class ResourceLibraryDao {
         deleteScanEntries(resourceId)
         deleteResource(resourceId)
     }
+    @Query("SELECT * FROM library_resource WHERE sourceId = :sourceId")
+    protected abstract suspend fun relocationResources(sourceId: String): List<LibraryResourceEntity>
+
+    @Query("SELECT * FROM library_scan_root WHERE sourceId = :sourceId")
+    protected abstract suspend fun relocationRoots(sourceId: String): List<LibraryScanRootEntity>
+
+    @Query("SELECT e.* FROM library_scan_entry e INNER JOIN library_scan_root r ON r.id = e.rootId WHERE r.sourceId = :sourceId")
+    protected abstract suspend fun relocationScanEntries(sourceId: String): List<LibraryScanEntryEntity>
+
+    @Transaction
+    open suspend fun relocationSnapshot(sourceId: String): LibraryRelocationSnapshot = LibraryRelocationSnapshot(
+        sourceId, relocationResources(sourceId), bindingsForSourceSnapshot(sourceId),
+        suggestionsForSourceSnapshot(sourceId), relocationRoots(sourceId), relocationScanEntries(sourceId),
+    )
+
+    /** Identity, bindings and ignored decisions remain stable; conflicting destination records are never merged. */
+    @Transaction
+    open suspend fun commitRelocation(
+        expected: LibraryRelocationSnapshot,
+        resources: List<LibraryResourceEntity>,
+        roots: List<LibraryScanRootEntity>,
+        retainedEntries: List<LibraryScanEntryEntity>,
+        refreshedBindings: List<LibraryEpisodeBindingEntity> = emptyList(),
+    ): Boolean {
+        val current = relocationSnapshot(expected.sourceId)
+        if (current.resources.toSet() != expected.resources.toSet() || current.bindings.toSet() != expected.bindings.toSet() ||
+            current.suggestions.toSet() != expected.suggestions.toSet() || current.roots.toSet() != expected.roots.toSet() ||
+            current.scanEntries.toSet() != expected.scanEntries.toSet()) return false
+        val oldResources = expected.resources.associateBy { it.id }
+        val oldRoots = expected.roots.associateBy { it.id }
+        require(resources.map { it.id }.distinct().size == resources.size)
+        require(resources.all { it.id in oldResources && it.sourceId == expected.sourceId })
+        require(roots.map { it.id }.distinct().size == roots.size)
+        require(roots.all { it.id in oldRoots && it.sourceId == expected.sourceId })
+        val movedIds = resources.map { it.id }.toSet()
+        val finalResources = expected.resources.filterNot { it.id in movedIds } + resources
+        require(finalResources.map { it.resourceKey }.distinct().size == finalResources.size) { "Destination already has a resource record" }
+        val movedRootIds = roots.map { it.id }.toSet()
+        val finalRoots = expected.roots.filterNot { it.id in movedRootIds } + roots
+        require(finalRoots.map { it.referenceJson }.distinct().size == finalRoots.size) { "Destination already has a scan root" }
+        require(retainedEntries.all { entry -> entry.resourceId in movedIds && entry.rootId in oldRoots &&
+            expected.scanEntries.any { it.resourceId == entry.resourceId && it.rootId == entry.rootId } })
+        require(refreshedBindings.all { updated -> updated.resourceId in movedIds && expected.bindings.any { old ->
+            updated.copy(mediaJson = old.mediaJson) == old
+        } })
+        require(refreshedBindings.map { Triple(it.resourceId, it.subjectId, it.episodeId) }.distinct().size == refreshedBindings.size)
+        resources.forEach { upsertResource(it) }
+        refreshedBindings.forEach { upsertBinding(it) }
+        roots.forEach { upsertScanRoot(it.copy(activeScanToken = null)) }
+        movedIds.forEach { deleteScanEntries(it) }
+        retainedEntries.forEach { upsertScanEntry(it) }
+        invalidateScans(expected.sourceId)
+        return true
+    }
+
 }

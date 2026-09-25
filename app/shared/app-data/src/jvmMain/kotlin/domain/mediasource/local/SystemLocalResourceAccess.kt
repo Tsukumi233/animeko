@@ -37,6 +37,14 @@ internal class SystemLocalResourceAccess : LocalResourceAccess {
             if (attributes.isRegularFile) attributes.size() else null, attributes.lastModifiedTime().toMillis())
     }
 
+    override fun relativePathSegments(rootUri: String, resourceUri: String): List<String>? {
+        val root = file(rootUri).toPath()
+        val resource = file(resourceUri).toPath()
+        if (!resource.startsWith(root)) return null
+        if (root == resource) return emptyList()
+        return root.relativize(resource).map { it.toString() }
+    }
+
     override suspend fun stat(uri: String): LocalResourceEntry = withContext(Dispatchers.IO) { entry(file(uri)) }
 
     override suspend fun list(directoryUri: String): List<LocalResourceEntry> = withContext(Dispatchers.IO) {

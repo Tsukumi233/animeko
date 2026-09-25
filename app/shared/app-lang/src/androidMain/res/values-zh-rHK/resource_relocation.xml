@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="resource_relocate">重新定位</string>
+    <string name="resource_relocate_confirm">確認位置</string>
+    <string name="resource_relocate_file_hint">請選擇此關聯對應的影片檔案，確認後保留既有劇集關聯。</string>
+    <string name="resource_relocate_directory_hint">請核對每個相對路徑，確認這些檔案仍是對應資源。確認後保留既有劇集關聯。</string>
+    <string name="resource_relocate_different_size">檔案大小不同，請確認這是要使用的影片版本。</string>
+    <string name="resource_relocate_not_video">請選擇影片檔案。</string>
+    <string name="resource_relocate_not_directory">請選擇目錄。</string>
+    <string name="resource_relocate_opaque">此文件提供者不提供穩定的相對路徑，請逐個檔案重新定位。</string>
+    <string name="resource_relocate_overlap">此目錄與其他掃描根目錄重疊，請先處理重疊的掃描根目錄。</string>
+    <string name="resource_relocate_incomplete">部分已索引檔案缺失或屬性不同，請逐個檔案重新定位，或選擇與原目錄對應的目錄。</string>
+    <string name="resource_relocate_conflict">目標位置已有資源索引或掃描根目錄，無法自動合併。</string>
+    <string name="resource_relocate_changed">預覽後資源紀錄或檔案發生變化，請重新選擇目標位置。</string>
+    <string name="resource_relocate_old_location">原位置</string>
+    <string name="resource_relocate_new_location">所選位置</string>
+</resources>

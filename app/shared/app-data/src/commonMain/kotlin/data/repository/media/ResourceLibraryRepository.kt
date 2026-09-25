@@ -13,6 +13,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
+import me.him188.ani.app.data.persistent.database.dao.LibraryRelocationSnapshot
+import me.him188.ani.app.data.persistent.database.dao.LibraryScanEntryEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryEpisodeBindingEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryMatchSuggestionEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryResourceEntity
@@ -251,6 +253,18 @@ class ResourceLibraryRepository(
                     }.toMap(),
                 ),
             )
+        }
+    }
+
+    suspend fun relocate(
+        expected: LibraryRelocationSnapshot,
+        resources: List<LibraryResourceEntity>,
+        roots: List<LibraryScanRootEntity>,
+        retainedEntries: List<LibraryScanEntryEntity>,
+        refreshedBindings: List<LibraryEpisodeBindingEntity> = emptyList(),
+    ): Boolean = writes.withLock {
+        dao.commitRelocation(expected, resources, roots, retainedEntries, refreshedBindings).also { committed ->
+            if (committed) mutableRevision.update { it + 1 }
         }
     }
 

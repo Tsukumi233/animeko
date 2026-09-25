@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="resource_relocate">Relocate resource</string>
+    <string name="resource_relocate_confirm">Confirm location</string>
+    <string name="resource_relocate_file_hint">Choose the video for this existing association. Confirm its identity before keeping the episode association.</string>
+    <string name="resource_relocate_directory_hint">Check every relative path. Confirm that these files are the same resources; episode associations will be retained.</string>
+    <string name="resource_relocate_different_size">This file has a different size. Check that it is the video you intend to use.</string>
+    <string name="resource_relocate_not_video">Choose a video file.</string>
+    <string name="resource_relocate_not_directory">Choose a directory.</string>
+    <string name="resource_relocate_opaque">This document provider does not expose stable relative paths. Relocate individual files instead.</string>
+    <string name="resource_relocate_overlap">This directory overlaps another saved scan root. Resolve the overlapping roots before relocating it.</string>
+    <string name="resource_relocate_incomplete">Some indexed files are missing or have different metadata. Relocate them individually or choose the matching directory.</string>
+    <string name="resource_relocate_conflict">The destination already has an indexed resource or scan root. It cannot be merged automatically.</string>
+    <string name="resource_relocate_changed">Resources or files changed after the preview. Choose the destination again.</string>
+    <string name="resource_relocate_old_location">Previous location</string>
+    <string name="resource_relocate_new_location">Selected location</string>
+</resources>

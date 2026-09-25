@@ -49,3 +49,21 @@
 `MediaFetchSession.mediaSourceResultsFlow` 描述当前来源成员。新增来源订阅自己的查询，移除来源取消自己的查询；未变化来源的订阅、终态与缓存保持。自动选源和 fallback 观察同一成员流。条目会话跨集复用，用户编辑的查询提示保留。
 
 `MediaSourceInstancePool` 按保存配置与代理配置复用来源实例。新增或排序来源时，既有 SMB 等来源的活动输入保持打开；来源被移除或其配置改变时关闭对应旧实例。
+## 本地资源重新定位
+
+`LocalResourceRelocationUseCase` 将新的系统文件/目录选择准备成 `LocalResourceRelocationPlan`，由用户核对后调用 `confirm`。
+单文件允许明确选择不同大小或名称的视频版本，预览展示差异。资源库行 ID、原始候选 `mediaId`、剧集绑定和跳过决定保留；
+长期引用与资源属性更新，当前来源候选通过 revision 重新读取。单文件使用 `LocalFileMediaSource.createMedia` 根据新文件重建标题、大小、语言和画质信息，保留原始 `mediaId`、剧集范围和归属，并在同一事务中保存。原文件保持只读，重新定位不执行移动、复制或删除。
+单文件离开原扫描目录时移除旧的扫描成员关系，旧目录后续扫描不能把新位置误判为缺失；单文件的独立选择根跟随新位置更新。
+
+目录迁移依据已保存文件相对于旧根的完整路径，在新目录逐层枚举唯一同名条目，验证视频类型、已知大小和双方可用的修改时间。
+任何缺失、重名、不同属性、重叠扫描根或已有目标记录都会拒绝整批准备，不按文件名末段或集号猜测。
+确认前逐项重读新位置属性；Room 事务比较同来源资源、扫描根/成员、绑定和建议的完整快照，任何并发修改都要求重新预览。
+事务保留原 ID 并更新目录根与确认规则的父引用，清除该根旧扫描时间，失效同来源正在进行的扫描。目标索引冲突不会自动合并。
+
+Windows 使用本机路径规则计算相对路径。Android 仅对 ExternalStorageProvider 的 `volume:path` 标识使用相对路径，
+依据 [AOSP ExternalStorageProvider](https://android.googlesource.com/platform/frameworks/base/+/master/packages/ExternalStorageProvider/src/com/android/externalstorage/ExternalStorageProvider.java) 的标识格式。
+其他文档提供方的 ID 保持不透明，可逐文件重新定位；无法证明旧目录相对路径时显示明确错误。新的系统选择保留读取授权，已有授权不会被准备失败或关闭预览撤销。
+
+`LocalResourceRelocationController` 管理准备、确认、错误与请求身份，取消或迟到的准备结果不能重新打开弹窗。
+界面用 `ResourceRelocationDialog` 展示完整根位置和逐文件相对路径，确认写入期间避免重复提交；错误后需要重新选择并准备目标。

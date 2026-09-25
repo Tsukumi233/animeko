@@ -26,6 +26,9 @@ interface LocalResourceAccess {
     suspend fun stat(uri: String): LocalResourceEntry
     suspend fun list(directoryUri: String): List<LocalResourceEntry>
 
+    /** Lexical relative path when the provider defines path-based identities; null for opaque or unrelated IDs. */
+    fun relativePathSegments(rootUri: String, resourceUri: String): List<String>? = null
+
     /** Retain the URI returned by the picker (the tree root, rather than a derived child URI). */
     suspend fun persistReadPermission(uri: String)
 
@@ -37,3 +40,14 @@ interface LocalResourceAccess {
 }
 
 expect fun createLocalResourceAccess(context: Context): LocalResourceAccess
+
+/** ExternalStorageProvider's volume:path document ID format; other providers use opaque identities. */
+internal fun externalStorageRelativePathSegments(rootId: String, resourceId: String): List<String>? {
+    if (':' !in rootId || ':' !in resourceId) return null
+    if (rootId == resourceId) return emptyList()
+    val prefix = if (rootId.endsWith(':')) rootId else rootId.trimEnd('/') + "/"
+    if (!resourceId.startsWith(prefix)) return null
+    return resourceId.removePrefix(prefix).split('/').takeIf { parts ->
+        parts.all { it.isNotEmpty() && it != "." && it != ".." }
+    }
+}

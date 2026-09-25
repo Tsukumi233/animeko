@@ -56,6 +56,18 @@ internal class AndroidLocalResourceAccess(private val resolver: ContentResolver)
         if (isNull(3)) null else getLong(3), if (isNull(4)) null else getLong(4),
     )
 
+    override fun relativePathSegments(rootUri: String, resourceUri: String): List<String>? {
+        if (!isDocument(rootUri) && !isDocument(resourceUri)) return system.relativePathSegments(rootUri, resourceUri)
+        if (!isDocument(rootUri) || !isDocument(resourceUri)) return null
+        val root = Uri.parse(rootUri)
+        val resource = Uri.parse(resourceUri)
+        // ExternalStorageProvider document IDs consist of a volume identifier and a relative filesystem path.
+        if (root.authority != "com.android.externalstorage.documents" || resource.authority != root.authority) return null
+        val rootId = DocumentsContract.getDocumentId(documentUri(root)).trimEnd('/')
+        val resourceId = DocumentsContract.getDocumentId(documentUri(resource))
+        return externalStorageRelativePathSegments(rootId, resourceId)
+    }
+
     override suspend fun stat(uri: String): LocalResourceEntry {
         if (!isDocument(uri)) return system.stat(uri)
         return withContext(Dispatchers.IO) {
