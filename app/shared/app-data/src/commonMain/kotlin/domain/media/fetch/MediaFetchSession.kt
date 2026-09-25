@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.shareIn
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.source.MediaFetchRequest
@@ -24,7 +25,7 @@ import me.him188.ani.utils.coroutines.cancellableCoroutineScope
  *
  * 只有在 [MediaSourceFetchResult.results] 有 collector 时, 才会开始查询. 当一段时间没有 collector 后, 查询自动停止
  *
- * 在查询完成 [hasCompleted] 后, 该会话自动关闭.
+ * 查询完成后保留自动查询结果；持续订阅时仍可接收来源成员与本地关联变化.
  *
  * 可通过 [MediaFetcher] 创建.
  */
@@ -42,7 +43,10 @@ interface MediaFetchSession {
     /**
      * 从各个数据源获取的结果
      */
-    val mediaSourceResults: List<MediaSourceFetchResult> // dev notes: see implementation of [MediaSource]s for the IDs.
+    val mediaSourceResults: List<MediaSourceFetchResult> // Current source-list snapshot.
+
+    /** Source membership changes without replacing this query or restarting unchanged sources. */
+    val mediaSourceResultsFlow: Flow<List<MediaSourceFetchResult>> get() = flowOf(mediaSourceResults)
 
     /**
      * 从所有数据源聚合的结果. collect [cumulativeResults] 会导致所有数据源开始查询. 持续 collect 以保持查询不被中断.

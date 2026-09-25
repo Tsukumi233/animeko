@@ -62,7 +62,6 @@ import me.him188.ani.datasources.jellyfin.EmbyMediaSource
 import me.him188.ani.datasources.jellyfin.JellyfinMediaSource
 import me.him188.ani.datasources.mikan.MikanCNMediaSource
 import me.him188.ani.datasources.mikan.MikanMediaSource
-import me.him188.ani.utils.coroutines.onReplacement
 import me.him188.ani.utils.ktor.ClientProxyConfig
 import me.him188.ani.utils.ktor.ScopedHttpClient
 import me.him188.ani.utils.logging.error
@@ -205,8 +204,8 @@ suspend fun <T> MediaSourceManager.updateMediaSourceArguments(
 /**
  * 根据请求创建 [MediaFetchSession].
  *
- * The session is frozen to the current [MediaFetcher] snapshot. Source-list changes should not
- * rebuild the same playback query; callers need to explicitly create a new session when that is desired.
+ * The session keeps its query and existing source searches while source membership and confirmed
+ * resource associations can update within that session.
  *
  * @param requestLazy 相当于 [lazy]. 只有第一个元素会被使用. 必须至少 emit 一个元素.
  *
@@ -265,13 +264,12 @@ class MediaSourceManagerImpl(
             )
         }
     }
+    private val instancePool = MediaSourceInstancePool(::createInstance)
     private val instanceSnapshot = MutableStateFlow<List<MediaSourceInstance>>(emptyList())
     override val allInstances =
         combine(instances.flow, proxyProvider.proxy.distinctUntilChanged()) { saves, config ->
             // 一定要 additionalSources 在前面, local sources 需要优先使用
-            this.additionalSources + saves.mapNotNull { createInstance(it, config) }
-        }.onReplacement { list ->
-            list.forEach { it.close() }
+            this.additionalSources + instancePool.update(saves, config)
         }.onEach { instanceSnapshot.value = it }
             .flowOn(flowCoroutineContext).shareIn(scope, SharingStarted.Eagerly, replay = 1)
     override val currentInstances: List<MediaSourceInstance> get() = instanceSnapshot.value
@@ -309,11 +307,13 @@ class MediaSourceManagerImpl(
             .plus(this.additionalSources.map { it.factoryId })
     }
 
-    override val mediaFetcher: Flow<MediaFetcher> = combine(allInstances, resourceLibrary.revision) { instances, _ ->
+    override val mediaFetcher: Flow<MediaFetcher> = allInstances.map { instances ->
         MediaSourceMediaFetcher(
             configProvider = { MediaFetcherConfig(currentPlatform() != Platform.Ios) },
             mediaSources = instances,
             confirmedMedia = resourceLibrary::candidates,
+            confirmedMediaRevision = resourceLibrary.revision,
+            mediaSourceUpdates = allInstances,
         )
     }
     override val webVideoMatcherLoader: MediaSourceWebVideoMatcherLoader = MediaSourceWebVideoMatcherLoader(

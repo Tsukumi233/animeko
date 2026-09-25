@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flatMapMerge
@@ -63,7 +65,6 @@ import me.him188.ani.datasources.api.source.MediaSourceInfo
 import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.datasources.api.source.toStringMultiline
 import me.him188.ani.utils.coroutines.cancellableCoroutineScope
-import me.him188.ani.utils.coroutines.flows.flowOfEmptyList
 import me.him188.ani.utils.logging.error
 import me.him188.ani.utils.logging.info
 import me.him188.ani.utils.logging.logger
@@ -167,6 +168,8 @@ class MediaSourceMediaFetcher(
     private val mediaSources: List<MediaSourceInstance>,
     private val flowContext: CoroutineContext = Dispatchers.Default,
     private val confirmedMedia: suspend (String, MediaFetchRequest) -> List<Media> = { _, _ -> emptyList() },
+    private val confirmedMediaRevision: Flow<Long> = flowOf(0L),
+    private val mediaSourceUpdates: Flow<List<MediaSourceInstance>> = flowOf(mediaSources),
 ) : MediaFetcher {
     private inner class MediaSourceResultImpl(
         override val instanceId: String,
@@ -176,6 +179,7 @@ class MediaSourceMediaFetcher(
         private val config: MediaFetcherConfig,
         val disabled: Boolean,
         pagedSources: Flow<SizedSource<MediaMatch>>,
+        confirmedResults: Flow<List<Media>>,
         private val flowContext: CoroutineContext,
     ) : MediaSourceFetchResult, SynchronizedObject() {
         /**
@@ -187,7 +191,16 @@ class MediaSourceMediaFetcher(
             MutableStateFlow(if (disabled) MediaSourceFetchState.Disabled else MediaSourceFetchState.Idle)
         private val restartCount = MutableStateFlow(0) // 只能在 [restart] 内修改
 
-        override val results by lazy {
+        override val results: Flow<List<Media>> by lazy {
+            combine(automaticResults, confirmedResults, state) { automatic, confirmed, state ->
+                if (state is MediaSourceFetchState.Disabled) emptyList()
+                else (confirmed + automatic).distinctBy { it.mediaId }
+            }.onStart {
+                if (restartCount.value == 0 && state.value == MediaSourceFetchState.Idle) emit(emptyList())
+            }.distinctUntilChanged().flowOn(flowContext)
+        }
+
+        private val automaticResults by lazy {
             restartCount.flatMapLatest { restartCount ->
 
                 state.value.let { currentState ->
@@ -434,35 +447,53 @@ class MediaSourceMediaFetcher(
             }
         override val request: Flow<MediaFetchRequest> = latestRequest.take(1) // 否则会一直显示加载
 
-        override val mediaSourceResults: List<MediaSourceFetchResult> = mediaSources
-            .filter {
-                if (config.enableBTFetcher) true else it.source.kind != MediaSourceKind.BitTorrent
+        private val sourceSlots = mutableMapOf<String, SourceSlot>()
+
+        private fun updateSources(instances: List<MediaSourceInstance>): List<MediaSourceFetchResult> {
+            val accepted = instances.filter { config.enableBTFetcher || it.source.kind != MediaSourceKind.BitTorrent }
+            sourceSlots.keys.retainAll(accepted.map { it.instanceId }.toSet())
+            return accepted.map { instance ->
+                val existing = sourceSlots[instance.instanceId]
+                val previous = existing?.instance
+                if (existing != null && previous != null && previous.mediaSourceId == instance.mediaSourceId &&
+                    previous.factoryId == instance.factoryId && previous.source.kind == instance.source.kind &&
+                    previous.isEnabled == instance.isEnabled
+                ) {
+                    existing.result
+                } else {
+                    val confirmed = combine(latestRequest, confirmedMediaRevision) { request, _ -> request }
+                        .flatMapLatest { request ->
+                            flow { emit(confirmedMedia(instance.mediaSourceId, request)) }
+                                .catch { error ->
+                                    if (error is CancellationException) throw error
+                                    logger.error(error) { "Failed to read confirmed resources for ${instance.mediaSourceId}" }
+                                    emit(emptyList())
+                                }
+                        }.flowOn(flowContext)
+                        .shareIn(CoroutineScope(flowContext), SharingStarted.WhileSubscribed(), replay = 1)
+                    val result = MediaSourceResultImpl(
+                        instanceId = instance.instanceId,
+                        mediaSourceId = instance.mediaSourceId,
+                        sourceInfo = instance.source.info,
+                        kind = instance.source.kind,
+                        config = config,
+                        disabled = !instance.isEnabled,
+                        pagedSources = this.request.map { instance.source.fetch(it) },
+                        confirmedResults = confirmed,
+                        flowContext = flowContext,
+                    )
+                    sourceSlots[instance.instanceId] = SourceSlot(instance, result)
+                    result
+                }
             }
-            .map { instance ->
-                MediaSourceResultImpl(
-                    instanceId = instance.instanceId,
-                    mediaSourceId = instance.source.mediaSourceId,
-                    sourceInfo = instance.source.info,
-                    kind = instance.source.kind,
-                    config = config,
-                    disabled = !instance.isEnabled,
-                    pagedSources = this.request
-                        .map {
-                            val request = it
-                            confirmedResourceSource(
-                                confirmed = { confirmedMedia(instance.source.mediaSourceId, request) },
-                                automatic = { instance.source.fetch(request) },
-                            )
-                        },
-                    flowContext = flowContext,
-                )
-            }
+        }
+
+        override val mediaSourceResultsFlow = mediaSourceUpdates.map(::updateSources).distinctUntilChanged()
+            .stateIn(CoroutineScope(flowContext), SharingStarted.WhileSubscribed(), updateSources(mediaSources))
+        override val mediaSourceResults: List<MediaSourceFetchResult> get() = mediaSourceResultsFlow.value
 
         override val cumulativeResults: Flow<List<Media>> = kotlin.run {
-            if (mediaSourceResults.isEmpty()) {
-                return@run flowOfEmptyList()
-            }
-            combine(mediaSourceResults.map { it.results }) { lists ->
+            combineMediaSourceResults(mediaSourceResultsFlow) { it.results }.map { lists ->
                 lists.asSequence().flatten().toList()
             }.map { list ->
                 list.distinctBy { it.mediaId } // distinct globally by id, just to be safe
@@ -493,26 +524,19 @@ class MediaSourceMediaFetcher(
                 }
         }
 
-        override val hasCompleted = if (mediaSourceResults.isEmpty()) {
-            flowOf(CompletedConditions.AllCompleted)
-        } else {
-            combine(mediaSourceResults.map { it.state }) {
-                val pairs = mediaSourceResults.groupBy { it.kind }.mapValues { results ->
-                    val states = results.value.map { it.state }
-                    when {
-                        // 该类型数据源全部禁用时返回 null，如果返回 false 会导致 awaitCompletion 无法结束
-                        states.all { it.value is MediaSourceFetchState.Disabled } -> null
-                        states.all { it.value is MediaSourceFetchState.Completed || it.value is MediaSourceFetchState.Disabled } -> true
-                        else -> false
-                    }
+        override val hasCompleted = combineMediaSourceResults(mediaSourceResultsFlow) { source ->
+            source.state.map { source.kind to it }
+        }.map { snapshots ->
+            if (snapshots.isEmpty()) return@map CompletedConditions.AllCompleted
+            val completed = snapshots.groupBy({ it.first }, { it.second }).mapValues { (_, states) ->
+                when {
+                    states.all { it is MediaSourceFetchState.Disabled } -> null
+                    states.all { it is MediaSourceFetchState.Completed || it is MediaSourceFetchState.Disabled } -> true
+                    else -> false
                 }
-                CompletedConditions(
-                    ImmutableEnumMap<MediaSourceKind, _> { kind ->
-                        pairs[kind]
-                    },
-                )
-            }.flowOn(flowContext)
-        }
+            }
+            CompletedConditions(ImmutableEnumMap { kind -> completed[kind] })
+        }.flowOn(flowContext)
 
         override fun setFetchRequest(request: MediaFetchRequest) {
             if (request == overrideFetchRequest.value) {
@@ -529,6 +553,11 @@ class MediaSourceMediaFetcher(
     ): MediaFetchSession {
         return MediaFetchSessionImpl(requestLazy, configProvider(), this.flowContext + flowContext)
     }
+
+    private class SourceSlot(
+        val instance: MediaSourceInstance,
+        val result: MediaSourceFetchResult,
+    )
 
     private companion object {
         private val logger = logger<MediaSourceMediaFetcher>()

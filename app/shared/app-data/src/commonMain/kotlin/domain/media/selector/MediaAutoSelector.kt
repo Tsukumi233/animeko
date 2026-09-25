@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import me.him188.ani.app.data.models.preference.MediaPreference.Companion.ANY_FILTER
 import me.him188.ani.app.domain.media.fetch.MediaFetchSession
+import me.him188.ani.app.domain.media.fetch.combineMediaSourceResults
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
 import me.him188.ani.app.domain.media.fetch.isFinal
 import me.him188.ani.app.domain.media.selector.MatchMetadata.SubjectMatchKind
@@ -113,8 +114,7 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
     }
 
     private fun sourceSnapshots(session: MediaFetchSession): Flow<List<MediaSourceSelectionSnapshot>> {
-        if (session.mediaSourceResults.isEmpty()) return flowOf(emptyList())
-        return combine(session.mediaSourceResults.map { source ->
+        return combineMediaSourceResults(session.mediaSourceResultsFlow) { source ->
             // Keep a stable subscription to results: these subscriptions also drive lazy source queries.
             combine(source.state, source.results) { state, results ->
                 // combine can observe a terminal state before delivering the corresponding results event.
@@ -129,7 +129,7 @@ internal class MediaAutoSelector(private val mediaSelector: MediaSelector) {
                     currentResults,
                 )
             }
-        }) { it.toList() }
+        }
     }
 
     private enum class Stage { PreferredSource, Instant, Exact, Fuzzy }

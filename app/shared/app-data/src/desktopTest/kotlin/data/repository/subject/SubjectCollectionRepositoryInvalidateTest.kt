@@ -429,6 +429,7 @@ class SubjectCollectionRepositoryInvalidateTest {
             ))
             assertEquals(listOf(11), repository.subjectCollectionFlow(1).first().episodes.map { it.episodeId })
             assertEquals(listOf(11, 12), repository.librarySubjectCollectionFlow(1).first().episodes.map { it.episodeId })
+            assertEquals(EpisodeType.SP, episodes.episodeCollectionInfoFlow(1, 12).first().episodeInfo.type)
         }
 
     @Test

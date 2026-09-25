@@ -12,6 +12,7 @@ package me.him188.ani.app.domain.media.selector
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -35,6 +36,32 @@ import kotlin.time.Duration.Companion.seconds
 
 @DisabledOnNative
 class MediaAutoSelectorTest {
+    @Test
+    fun `pending selection observes newly added source and removal releases old completion gate`() = runFetchMediaSelectorTestSuite {
+        initSelection()
+        val (_, original, sources) = configureFetchSession {
+            object {
+                val bt1 by bt()
+                val bt2 by bt()
+            }
+        }
+        val visible = MutableStateFlow(listOf(original.mediaSourceResults.first()))
+        val dynamic = object : MediaFetchSession by original {
+            override val mediaSourceResults get() = visible.value
+            override val mediaSourceResultsFlow = visible
+        }
+        val selection = launchSelection(dynamic)
+        testScope().runCurrent()
+        assertFalse(selection.isCompleted)
+        visible.value = original.mediaSourceResults
+        sources.bt2.complete(media(kind = BitTorrent, subjectName = "Example Series"))
+        testScope().runCurrent()
+        assertFalse(selection.isCompleted)
+        visible.value = original.mediaSourceResults.drop(1)
+        testScope().runCurrent()
+        assertEquals(sources.bt2.instance.mediaSourceId, selection.await()?.mediaSourceId)
+    }
+
     @Test
     fun `BT waits for its sources and selects before pending WEB completes`() = runFetchMediaSelectorTestSuite {
         initSelection()
