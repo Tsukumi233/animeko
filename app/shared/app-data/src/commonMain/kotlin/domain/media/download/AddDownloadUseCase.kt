@@ -95,7 +95,9 @@ class AddDownloadUseCaseImpl(
                         when (media.kind) {
                             MediaSourceKind.WEB -> "web"
                             MediaSourceKind.BitTorrent -> "bt"
-                            MediaSourceKind.LocalCache -> null
+                            MediaSourceKind.LocalCache, MediaSourceKind.LocalFile -> null
+                            MediaSourceKind.FileService -> "file-service"
+                            MediaSourceKind.CloudDrive -> "cloud-drive"
                         },
                     )
                 }
