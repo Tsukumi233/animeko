@@ -39,6 +39,7 @@ data class ResourceBrowserState(
 class ResourceBrowserController(
     private val scope: CoroutineScope,
     private val torrentBrowser: TorrentResourceBrowser,
+    private val onTorrentListed: suspend (MediaSourceEntry, List<String>) -> Unit = { _, _ -> },
     private val searchIndex: (suspend (sourceId: String, query: String) -> List<ResourcePreviewInput>)? = null,
 ) {
     private val mutableState = MutableStateFlow(ResourceBrowserState())
@@ -49,6 +50,12 @@ class ResourceBrowserController(
     fun open(sourceId: String, name: String, browser: MediaSourceBrowser) {
         this.browser = browser
         load(ResourceBrowserState(sourceId = sourceId, sourceName = name, searchScope = browser.searchScope))
+    }
+
+    fun openTorrent(entry: MediaSourceEntry, sourceName: String, sourceBrowser: MediaSourceBrowser) {
+        require(entry.kind == MediaSourceEntryKind.TORRENT)
+        browser = sourceBrowser
+        load(ResourceBrowserState(sourceId = entry.reference.sourceId, sourceName = sourceName, path = listOf(entry), rootReference = entry.reference))
     }
 
     fun close() {
@@ -103,6 +110,8 @@ class ResourceBrowserController(
                 val nextToken: String?
                 if (inTorrent) {
                     val listing = torrentBrowser.browse(parent!!.reference)
+                    currentCoroutineContext().ensureActive()
+                    onTorrentListed(parent, listing.files.filter { it.isVideo }.map { it.pathInTorrent })
                     rows = listing.files.map { file -> ResourcePreviewInput(parent, file.pathInTorrent) }
                     nextToken = null
                 } else if (searchesIndex && target.query.isNotBlank()) {

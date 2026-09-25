@@ -19,6 +19,7 @@ internal fun ResourceLibraryEntry(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     episodeLabel: String? = null,
+    statusLabel: String? = null,
     filePath: String? = null,
     missing: Boolean = false,
     trailingContent: @Composable (() -> Unit)? = null,
@@ -37,6 +38,7 @@ internal fun ResourceLibraryEntry(
         supportingContent = {
             Column {
                 Text(listOfNotNull(kind, sourceLabel, episodeLabel).distinct().joinToString(" · "))
+                statusLabel?.let { Text(it) }
                 filePath?.let { Text(it) }
                 if (missing) Text(stringResource(Lang.resource_missing))
             }

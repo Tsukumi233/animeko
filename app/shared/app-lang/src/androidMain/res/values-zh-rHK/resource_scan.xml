@@ -21,4 +21,9 @@
     <string name="resource_search_index">搜尋已索引內容</string>
     <string name="resource_search_index_hint">搜尋此來源中已儲存的檔案名稱和路徑，不包括尚未掃描的檔案。</string>
     <string name="resource_source_unavailable">來源無法使用</string>
+    <string name="resource_browse_release">瀏覽發佈檔案</string>
+    <string name="resource_file_decision_error">無法讀取已儲存的檔案對應關係</string>
+    <string name="resource_file_ignored">已略過，點選可重新核對</string>
+    <string name="resource_file_suggested">已有配對建議，等待確認</string>
+    <string name="resource_file_ambiguous">配對有衝突，請選擇集數</string>
 </resources>

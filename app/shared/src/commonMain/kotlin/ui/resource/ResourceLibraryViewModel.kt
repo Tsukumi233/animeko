@@ -101,9 +101,16 @@ class ResourceLibraryViewModel(
     val sources = manager.allInstances.map { entries -> entries.filterNot { it.source.kind == MediaSourceKind.LocalCache } }
         .stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val resources = library.resources.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
+    val suggestions = library.dao.suggestions().stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val bindings = library.bindings.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val roots = library.dao.scanRoots().stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
-    val browser = ResourceBrowserController(backgroundScope, torrentBrowser) { sourceId, query ->
+    val browser = ResourceBrowserController(backgroundScope, torrentBrowser,
+        onTorrentListed = { entry, paths ->
+            library.dao.findResource(entry.reference.sourceId, entry.reference.resourceId)?.let { resource ->
+                library.recordTorrentFiles(resource.id, entry.reference, paths)
+            }
+        },
+    ) { sourceId, query ->
         library.searchIndexed(sourceId, query).map { result ->
             val resource = result.resource
             ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name,
@@ -111,6 +118,7 @@ class ResourceLibraryViewModel(
                 selectedFilePath = result.selectedFilePath)
         }
     }
+    val showBrowser = MutableStateFlow(false)
     val selected = MutableStateFlow<List<ResourcePreviewInput>>(emptyList())
     val association = MutableStateFlow(ResourceAssociationUiState())
     val busy = MutableStateFlow(false)
@@ -160,8 +168,19 @@ class ResourceLibraryViewModel(
         val resource = resources.value.find { it.id == resourceId } ?: return
         val input = ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name,
             MediaSourceEntryKind.valueOf(resource.entryKind), resource.size, resource.modifiedTimeMillis), selectedFilePath = filePath)
-        selected.value = listOf(input)
-        openAssociation(target)
+        if (input.entry.kind == MediaSourceEntryKind.TORRENT && filePath == null) {
+            val source = sources.value.find { it.mediaSourceId == resource.sourceId }?.source
+            val sourceBrowser = source as? MediaSourceBrowser
+            if (sourceBrowser == null) {
+                error.value = IllegalStateException("Source is unavailable for browsing")
+                return
+            }
+            browser.openTorrent(input.entry, source.info.displayName, sourceBrowser)
+            showBrowser.value = true
+        } else {
+            selected.value = listOf(input)
+            openAssociation(target)
+        }
     }
 
     fun beginAssociation() = openAssociation()
@@ -183,8 +202,13 @@ class ResourceLibraryViewModel(
                     val resource = library.dao.findResource(reference.sourceId, reference.resourceId) ?: continue
                     val binding = storedBindings.singleOrNull { it.resourceId == resource.id && it.selectedFilePath == input.selectedFilePath }
                     if (binding != null) targets[input.identity] = ResourceEpisodeTarget(binding.subjectId, binding.episodeId)
-                    else if (library.dao.findSuggestion(resource.id)?.let { input.selectedFilePath in library.decodeIgnoredFiles(it) } == true) {
-                        ignored += input.identity
+                    else {
+                        val saved = library.dao.findSuggestion(resource.id)
+                        if (saved?.let { input.selectedFilePath in library.decodeIgnoredFiles(it) } == true) {
+                            ignored += input.identity
+                        } else {
+                            suggestedLibraryTarget(saved, input.selectedFilePath)?.let { targets[input.identity] = it }
+                        }
                     }
                 }
                 if (explicitTarget != null) targets[inputs.single().identity] = explicitTarget

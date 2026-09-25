@@ -15,6 +15,7 @@ import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.datasources.api.EpisodeSort
 import me.him188.ani.datasources.api.source.MediaResourceRef
+import me.him188.ani.datasources.api.source.MediaSourceEntryKind
 
 /** Only explicit user confirmation calls confirm; generated previews never save rules. */
 class ConfirmScanMatchingRulesUseCase(
@@ -59,6 +60,7 @@ data class StoredScanMatchSuggestions(
     val paths: Set<String?> = emptySet(),
     val rows: List<StoredResourceMatchSuggestion> = emptyList(),
     val version: Int = 1,
+    val catalogComplete: Boolean = false,
 ) {
     init { require(version == 1) }
 }
@@ -124,7 +126,7 @@ class ApplyScanMatchingRulesUseCase(
                 StoredResourceMatchSuggestion(row.input.selectedFilePath, row.titleSuggestions, row.episodeSort,
                     if (row.status == ResourcePreviewStatus.AUTO_ASSIGNABLE) ResourcePreviewStatus.CONFIRMED.name else row.status.name,
                     row.targets, row.input.parentReference)
-            })
+            }, catalogComplete = resourceRows.first().input.entry.kind == MediaSourceEntryKind.TORRENT)
             LibraryMatchSuggestionEntity(resourceId, Json.encodeToString(payload), paths.isNotEmpty())
         }
         val expectedResources = inputs.map { byKey.getValue(it.identity.resourceId) }.distinctBy { it.id }

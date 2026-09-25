@@ -312,6 +312,18 @@ abstract class ResourceLibraryDao {
         return true
     }
 
+    @Transaction
+    open suspend fun storeTorrentCatalog(
+        expectedResource: LibraryResourceEntity,
+        expectedSuggestion: LibraryMatchSuggestionEntity?,
+        suggestion: LibraryMatchSuggestionEntity,
+    ): Boolean {
+        require(suggestion.resourceId == expectedResource.id)
+        if (findResource(expectedResource.id) != expectedResource || findSuggestion(expectedResource.id) != expectedSuggestion) return false
+        upsertSuggestion(suggestion)
+        return true
+    }
+
     @Query("SELECT id FROM library_scan_root WHERE sourceId = :sourceId AND referenceJson = :referenceJson")
     protected abstract suspend fun rootsForReference(sourceId: String, referenceJson: String): List<String>
 

@@ -21,4 +21,9 @@
     <string name="resource_search_index">Search indexed files</string>
     <string name="resource_search_index_hint">Searches saved file names and paths in this source. Unscanned files are not included.</string>
     <string name="resource_source_unavailable">Source unavailable</string>
+    <string name="resource_browse_release">Browse release files</string>
+    <string name="resource_file_decision_error">Saved file decisions could not be read</string>
+    <string name="resource_file_ignored">Skipped — select to review</string>
+    <string name="resource_file_suggested">Suggested match — confirmation required</string>
+    <string name="resource_file_ambiguous">Conflicting matches — choose an episode</string>
 </resources>

@@ -18,6 +18,10 @@ import me.him188.ani.app.data.persistent.database.dao.LibraryMatchSuggestionEnti
 import me.him188.ani.app.data.persistent.database.dao.LibraryResourceEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryScanRootEntity
 import me.him188.ani.app.data.persistent.database.dao.ResourceLibraryDao
+import me.him188.ani.app.domain.mediasource.library.ResourceAssociationPreviewBuilder
+import me.him188.ani.app.domain.mediasource.library.ResourcePreviewInput
+import me.him188.ani.app.domain.mediasource.library.StoredResourceMatchSuggestion
+import me.him188.ani.app.domain.mediasource.library.StoredScanMatchSuggestions
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaAssociation
 import me.him188.ani.datasources.api.unwrapCached
@@ -148,16 +152,43 @@ class ResourceLibraryRepository(
             if (key !in resources) resources[key] = input.entry.toEntity(dao.findResource(reference.sourceId, reference.resourceId)?.id)
         }
         val suggestions = resources.values.mapNotNull { resource ->
-            val previous = dao.findSuggestion(resource.id)?.let(::decodeIgnoredFiles).orEmpty()
+            val previousSuggestion = dao.findSuggestion(resource.id)
+            val previous = previousSuggestion?.let(::decodeIgnoredFiles).orEmpty()
+            val catalog = if (resource.entryKind == MediaSourceEntryKind.TORRENT.name) previousSuggestion?.let {
+                json.decodeFromString<StoredScanMatchSuggestions>(it.suggestionJson)
+            } else null
             val confirmed = bindings.filter { it.resourceId == resource.id }.map { it.selectedFilePath }.toSet()
             val skipped = ignored.filter { it.entry.reference.sourceId == resource.sourceId && it.entry.reference.resourceId == resource.resourceKey }
                 .map { it.selectedFilePath }
             val paths = previous - confirmed + skipped
-            if (paths.isEmpty()) null else LibraryMatchSuggestionEntity(resource.id, json.encodeToString(LibraryIgnoredFiles(paths)), ignored = true)
+            if (catalog != null && (catalog.rows.isNotEmpty() || catalog.catalogComplete)) {
+                LibraryMatchSuggestionEntity(resource.id, json.encodeToString(catalog.copy(paths = paths)), ignored = paths.isNotEmpty())
+            } else if (paths.isEmpty()) null else LibraryMatchSuggestionEntity(resource.id, json.encodeToString(LibraryIgnoredFiles(paths)), ignored = true)
         }
         dao.confirmBindings(resources.values.toList(), bindings, replaceFileBindings, suggestions)
         mutableRevision.update { it + 1 }
         resources.values.toList()
+    }
+
+    /** A successful metadata listing records exact video paths without changing bindings or ignored decisions. */
+    suspend fun recordTorrentFiles(resourceId: String, reference: MediaResourceRef, paths: List<String>) {
+        require(paths.all { it.isNotBlank() } && paths.distinct().size == paths.size)
+        writes.withLock {
+            val resource = requireNotNull(dao.findResource(resourceId)) { "Resource was removed" }
+            require(resource.entryKind == MediaSourceEntryKind.TORRENT.name && decodeReference(resource) == reference) { "Resource changed during metadata listing" }
+            val previous = dao.findSuggestion(resourceId)
+            val stored = previous?.let { json.decodeFromString<StoredScanMatchSuggestions>(it.suggestionJson) }
+            val existingRows = stored?.rows.orEmpty().associateBy { it.selectedFilePath }
+            val entry = MediaSourceEntry(reference, resource.name, MediaSourceEntryKind.TORRENT, resource.size, resource.modifiedTimeMillis)
+            val rows = ResourceAssociationPreviewBuilder().build(paths.map { ResourcePreviewInput(entry, it) }, emptyList()).map {
+                existingRows[it.input.selectedFilePath] ?: StoredResourceMatchSuggestion(it.input.selectedFilePath, it.titleSuggestions, it.episodeSort, it.status.name, it.targets, it.input.parentReference)
+            }
+            val ignored = previous?.let(::decodeIgnoredFiles).orEmpty()
+            val payload = StoredScanMatchSuggestions(ignored, rows, catalogComplete = true)
+            check(dao.storeTorrentCatalog(resource, previous, LibraryMatchSuggestionEntity(resourceId, json.encodeToString(payload), ignored.isNotEmpty()))) {
+                "Resource decisions changed during metadata listing"
+            }
+        }
     }
 
     /** Source-wide name search over saved index records; it never queries or claims to enumerate a server. */

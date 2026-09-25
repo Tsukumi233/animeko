@@ -21,4 +21,9 @@
     <string name="resource_search_index">搜索已索引内容</string>
     <string name="resource_search_index_hint">搜索此来源中已保存的文件名和路径，不包括尚未扫描的文件。</string>
     <string name="resource_source_unavailable">来源不可用</string>
+    <string name="resource_browse_release">浏览发布文件</string>
+    <string name="resource_file_decision_error">无法读取已保存的文件对应关系</string>
+    <string name="resource_file_ignored">已跳过，点击可重新核对</string>
+    <string name="resource_file_suggested">已有匹配建议，等待确认</string>
+    <string name="resource_file_ambiguous">匹配有冲突，请选择剧集</string>
 </resources>

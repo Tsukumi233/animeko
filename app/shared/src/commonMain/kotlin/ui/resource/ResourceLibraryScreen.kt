@@ -43,6 +43,10 @@ fun ResourceLibraryScreen(
     downloads: @Composable () -> Unit,
 ) {
     var page by rememberSaveable { mutableIntStateOf(initialPage) }
+    val showBrowser by viewModel.showBrowser.collectAsStateWithLifecycle()
+    LaunchedEffect(showBrowser) {
+        if (showBrowser) { page = 1; viewModel.showBrowser.value = false }
+    }
     var addMenu by remember { mutableStateOf(false) }
     var connection by remember { mutableStateOf<FileServiceProtocol?>(null) }
     var pikpakAccount by remember { mutableStateOf(false) }
@@ -173,7 +177,7 @@ private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, 
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
     val sources by viewModel.sources.collectAsStateWithLifecycle()
     val bySource = sources.associateBy { it.mediaSourceId }
-    val boundIds = bindings.map { it.resourceId }.toSet()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     LazyColumn(Modifier.fillMaxSize()) {
         if (resources.isEmpty()) item { ResourceEmptyText(stringResource(Lang.resource_empty_library)) }
         bindings.groupBy { it.subjectId }.forEach { (subjectId, entries) ->
@@ -203,17 +207,28 @@ private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, 
                 )
             }
         }
-        val pending = resources.filterNot { it.id in boundIds }
+        val pending = pendingLibraryFiles(resources, bindings, suggestions)
         if (pending.isNotEmpty()) item { Text(stringResource(Lang.resource_pending), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp)) }
-        items(pending, key = { it.id }) { resource ->
+        items(pending, key = { "pending:${it.resource.id}:${it.filePath}" }) { row ->
+            val resource = row.resource
             val source = bySource[resource.sourceId]?.source
+            val status = when (row.status) {
+                ResourcePendingStatus.UNKNOWN_FILES -> Lang.resource_browse_release
+                ResourcePendingStatus.INVALID_STATE -> Lang.resource_file_decision_error
+                ResourcePendingStatus.IGNORED -> Lang.resource_file_ignored
+                ResourcePendingStatus.SUGGESTED -> Lang.resource_file_suggested
+                ResourcePendingStatus.AMBIGUOUS -> Lang.resource_file_ambiguous
+                ResourcePendingStatus.UNRECOGNIZED -> Lang.resource_choose_episode
+            }
             ResourceLibraryEntry(
-                name = resource.name,
+                name = row.filePath?.substringAfterLast('/')?.substringAfterLast('\\') ?: resource.name,
                 sourceName = source?.info?.displayName,
                 sourceKind = source?.kind,
+                statusLabel = stringResource(status),
+                filePath = row.filePath,
                 missing = !resource.available,
-                onClick = { viewModel.selectIndexed(resource.id) },
-                trailingContent = { TextButton({ viewModel.removeResource(resource.id) }) { Text(stringResource(Lang.resource_remove_index)) } },
+                onClick = { viewModel.selectIndexed(resource.id, row.filePath) },
+                trailingContent = if (row.filePath == null) ({ TextButton({ viewModel.removeResource(resource.id) }) { Text(stringResource(Lang.resource_remove_index)) } }) else null,
             )
         }
     }

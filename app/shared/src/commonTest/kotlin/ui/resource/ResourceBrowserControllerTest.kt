@@ -24,6 +24,21 @@ class ResourceBrowserControllerTest {
     private fun torrent() = TorrentResourceBrowser({ null }, AlwaysUseTorrentEngineAccess)
     private fun entry(id: String, source: String = "test") = MediaSourceEntry(MediaResourceRef(source, id), id, MediaSourceEntryKind.VIDEO)
 
+    @Test fun `indexed release without metadata reports failure and never yields selectable release row`() = runTest {
+        var listed = false
+        val source = object : MediaSourceBrowser {
+            override suspend fun browse(parent: MediaResourceRef?, pageToken: String?): MediaSourcePage = error("No root listing")
+        }
+        val controller = ResourceBrowserController(backgroundScope, torrent(), onTorrentListed = { _, _ -> listed = true })
+        controller.openTorrent(entry("release").copy(kind = MediaSourceEntryKind.TORRENT), "BT", source)
+        runCurrent()
+        assertNotNull(controller.state.value.error)
+        assertTrue(controller.state.value.rows.isEmpty())
+        assertFalse(listed)
+        controller.back()
+        assertEquals(null, controller.state.value.sourceId)
+    }
+
     @Test fun `real root receives listing and back leaves source while nested folders remain navigable`() = runTest {
         val root = MediaSourceEntry(MediaResourceRef("test", "root", "scoped-root"), "NAS", MediaSourceEntryKind.DIRECTORY)
         val child = root.copy(reference = MediaResourceRef("test", "child"), name = "Season")
