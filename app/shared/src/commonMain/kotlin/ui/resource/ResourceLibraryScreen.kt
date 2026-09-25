@@ -104,6 +104,7 @@ fun ResourceLibraryScreen(
                     if (state.sourceId == null) {
                         val sources by viewModel.sources.collectAsStateWithLifecycle()
                         LazyColumn(Modifier.fillMaxSize()) {
+                            item { ResourceScanRoots(viewModel) }
                             if (sources.isEmpty()) item { ResourceEmptyText(stringResource(Lang.resource_no_sources)) }
                             items(sources, key = { it.instanceId }) { instance ->
                                 val browser = instance.source as? MediaSourceBrowser
@@ -123,12 +124,14 @@ fun ResourceLibraryScreen(
                         onRefresh = viewModel.browser::refresh, onMore = viewModel.browser::more,
                         onEnter = { viewModel.browser.enter(it.entry) }, onToggle = viewModel::toggle,
                         onScan = viewModel::scanCurrent, canScan = !busy,
+                        scanControls = { ResourceCurrentScanControls(viewModel) },
                     )
                 }
                 2 -> downloads()
             }
         }
     }
+    ResourceScanRulesDialog(viewModel)
     ResourceAssociationDialog(viewModel)
     if (pikpakAccount) {
         val config by viewModel.pikpakConfig.collectAsStateWithLifecycle()
@@ -224,6 +227,7 @@ internal fun ResourceBrowserContent(
     onToggle: (ResourcePreviewInput) -> Unit,
     onScan: () -> Unit,
     canScan: Boolean,
+    scanControls: @Composable () -> Unit = {},
 ) {
     var query by remember(state.sourceId, state.path, state.query) { mutableStateOf(state.query) }
     Column(Modifier.fillMaxSize().testTag("resource-browser")) {
@@ -235,6 +239,7 @@ internal fun ResourceBrowserContent(
             }
         }
         Text((listOf(state.sourceName) + state.path.map { it.name }).joinToString(" / "), modifier = Modifier.padding(horizontal = 16.dp))
+        scanControls()
         if (state.searchScope != MediaSourceSearchScope.NONE) Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(query, { query = it }, modifier = Modifier.weight(1f).testTag("resource-search"), singleLine = true,
                 label = { Text(stringResource(if (state.searchScope == MediaSourceSearchScope.SOURCE) Lang.resource_search_source else Lang.resource_search_folder)) })

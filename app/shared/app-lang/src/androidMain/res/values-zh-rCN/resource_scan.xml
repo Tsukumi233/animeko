@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="resource_scan_rules">匹配规则</string>
+    <string name="resource_scan_roots">扫描目录</string>
+    <string name="resource_scan_forget">移除扫描目录</string>
+    <string name="resource_scan_forget_hint">移除扫描目录保留原文件、索引和剧集关联。</string>
+    <string name="resource_scan_cancel">取消扫描</string>
+    <string name="resource_scan_retry">重试扫描</string>
+    <string name="resource_scan_first_hint">首次完整扫描只生成建议。</string>
+    <string name="resource_scan_completed">已完成扫描；确认的规则可关联新增文件。</string>
+    <string name="resource_scan_scope_hint">仅适用于此目录的直接文件；子目录需单独配置规则。保留已有修正与跳过决定。</string>
+    <string name="resource_scan_remove_rule">移除规则</string>
+    <string name="resource_scan_sort">连续集号</string>
+    <string name="resource_scan_season">季内集号</string>
+    <string name="resource_scan_titles">接受的标题（每行一个）</string>
+    <string name="resource_scan_all_titles">接受此目录内所有标题</string>
+    <string name="resource_scan_mapping_preview">文件集号 → 剧集</string>
+    <string name="resource_scan_duplicate_sort">集号重复，无法唯一匹配；请取消冲突剧集或切换集号类型。</string>
+    <string name="resource_scan_confirm_scope">我确认此目录、标题范围及剧集对应关系，允许后续完整扫描使用此规则。</string>
+</resources>

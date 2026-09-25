@@ -175,6 +175,19 @@ abstract class ResourceLibraryDao {
     @Upsert
     abstract suspend fun upsertScanRoot(root: LibraryScanRootEntity)
 
+    @Query("DELETE FROM library_scan_entry WHERE rootId = :rootId")
+    protected abstract suspend fun removeScanEntries(rootId: String)
+
+    @Query("DELETE FROM library_scan_root WHERE id = :rootId")
+    protected abstract suspend fun deleteScanRoot(rootId: String)
+
+    /** Forgetting a scan scope retains indexed resources, availability and confirmed bindings. */
+    @Transaction
+    open suspend fun removeScanRoot(rootId: String) {
+        removeScanEntries(rootId)
+        deleteScanRoot(rootId)
+    }
+
     @Transaction
     open suspend fun beginScan(requested: LibraryScanRootEntity, token: String): LibraryScanRootEntity? {
         val current = findScanRoot(requested.id) ?: return null

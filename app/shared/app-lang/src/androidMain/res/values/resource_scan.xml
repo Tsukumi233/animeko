@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="resource_scan_rules">Matching rules</string>
+    <string name="resource_scan_roots">Scanned folders</string>
+    <string name="resource_scan_forget">Stop tracking</string>
+    <string name="resource_scan_forget_hint">Removing a folder retains its files, index and episode associations.</string>
+    <string name="resource_scan_cancel">Cancel scan</string>
+    <string name="resource_scan_retry">Retry scan</string>
+    <string name="resource_scan_first_hint">The first complete scan only suggests matches.</string>
+    <string name="resource_scan_completed">A complete scan is saved. Confirmed rules can match added files.</string>
+    <string name="resource_scan_scope_hint">Applies only to files directly in this folder. Subfolders need their own rules. Existing corrections and skipped files are preserved.</string>
+    <string name="resource_scan_remove_rule">Remove rules</string>
+    <string name="resource_scan_sort">Series number</string>
+    <string name="resource_scan_season">Season number</string>
+    <string name="resource_scan_titles">Accepted titles (one per line)</string>
+    <string name="resource_scan_all_titles">Accept every title in this folder</string>
+    <string name="resource_scan_mapping_preview">Filename number → episode</string>
+    <string name="resource_scan_duplicate_sort">Repeated numbers cannot match uniquely. Deselect conflicting episodes or change numbering.</string>
+    <string name="resource_scan_confirm_scope">I confirm this folder, title scope and episode mapping. Apply to future complete scans.</string>
+</resources>

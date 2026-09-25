@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="resource_scan_rules">配對規則</string>
+    <string name="resource_scan_roots">掃描資料夾</string>
+    <string name="resource_scan_forget">移除掃描資料夾</string>
+    <string name="resource_scan_forget_hint">移除掃描資料夾保留原始檔案、索引和集數關聯。</string>
+    <string name="resource_scan_cancel">取消掃描</string>
+    <string name="resource_scan_retry">重試掃描</string>
+    <string name="resource_scan_first_hint">首次完整掃描只產生建議。</string>
+    <string name="resource_scan_completed">已完成掃描；確認的規則可關聯新增檔案。</string>
+    <string name="resource_scan_scope_hint">僅適用於此資料夾的直接檔案；子資料夾需單獨設定規則。保留已有修正與略過決定。</string>
+    <string name="resource_scan_remove_rule">移除規則</string>
+    <string name="resource_scan_sort">連續集數</string>
+    <string name="resource_scan_season">季內集數</string>
+    <string name="resource_scan_titles">接受的標題（每行一個）</string>
+    <string name="resource_scan_all_titles">接受此資料夾內所有標題</string>
+    <string name="resource_scan_mapping_preview">檔案集數 → 集數</string>
+    <string name="resource_scan_duplicate_sort">集數重複，無法唯一配對；請取消衝突集數或切換編號類型。</string>
+    <string name="resource_scan_confirm_scope">我確認此資料夾、標題範圍及集數對應關係，允許後續完整掃描使用此規則。</string>
+</resources>

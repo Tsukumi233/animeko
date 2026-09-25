@@ -22,6 +22,20 @@ class ResourceLibraryDaoTest {
     private fun resource() = LibraryResourceEntity("video", "disk", "01.mkv", "{}", "01.mkv", "VIDEO")
 
     @Test
+    fun `forgetting a scan root retains bindings and prevents in flight completion`() = test { dao ->
+        val binding = LibraryEpisodeBindingEntity("video", "disk", 1, 11, "{}")
+        dao.confirmBinding(resource(), binding)
+        val root = LibraryScanRootEntity("root", "disk", "{}", "root", activeScanToken = "scan")
+        dao.upsertScanRoot(root)
+        dao.upsertScanEntry(LibraryScanEntryEntity("root", "video", "scan"))
+        dao.removeScanRoot(root.id)
+        assertTrue(dao.scanRoots().first().isEmpty())
+        assertFalse(dao.completeScan(root.id, "scan", 10))
+        assertEquals(resource(), dao.findResource("video"))
+        assertEquals(listOf(binding), dao.bindings().first())
+    }
+
+    @Test
     fun `correcting one video replaces its old episode without removing other versions`() = test { dao ->
         val otherVersion = resource().copy(id = "other", resourceKey = "other.mkv")
         val original = LibraryEpisodeBindingEntity("video", "disk", 1, 11, "{}")

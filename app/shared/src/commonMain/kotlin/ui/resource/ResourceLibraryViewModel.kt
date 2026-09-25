@@ -3,9 +3,11 @@ package me.him188.ani.app.ui.resource
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,7 @@ import me.him188.ani.app.domain.mediasource.fileservice.FileServiceArguments
 import me.him188.ani.app.domain.mediasource.fileservice.FileServiceMediaSource
 import me.him188.ani.app.domain.mediasource.instance.MediaSourceSave
 import me.him188.ani.app.domain.mediasource.library.AssociateResourcesUseCase
+import me.him188.ani.app.domain.mediasource.library.ConfirmScanMatchingRulesUseCase
 import me.him188.ani.app.domain.mediasource.library.ResourceAssociationPreviewBuilder
 import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeOption
 import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeSelection
@@ -90,6 +93,7 @@ class ResourceLibraryViewModel(
     private val scanner: ResourceLibraryScanner,
     private val associate: AssociateResourcesUseCase,
     torrentBrowser: TorrentResourceBrowser,
+    matchingRules: ConfirmScanMatchingRulesUseCase,
     private val initialSubjectId: Int? = null,
     private val initialEpisodeId: Int? = null,
     private val initialFiles: List<String> = emptyList(),
@@ -117,6 +121,9 @@ class ResourceLibraryViewModel(
     }.distinctUntilChanged().flatMapLatest { query ->
         if (query.keywords.isBlank()) flowOf(PagingData.empty()) else search.searchSubjects(query)
     }.cachedIn(backgroundScope)
+    val scanRules = ResourceScanRuleController(backgroundScope,
+        { subjects.librarySubjectCollectionFlow(it).first() }, matchingRules::confirm, matchingRules::remove)
+    private val scanJobs = MutableStateFlow<Map<String, Job>>(emptyMap())
     private val sourceWrites = Mutex()
     private val preview = ResourceAssociationPreviewBuilder()
     private var subjectLoad: Job? = null
@@ -292,7 +299,14 @@ class ResourceLibraryViewModel(
                     library.index(item)
                     picked += ResourcePreviewInput(item)
                 }
-                else if (directory) scanner.scan(root, source)
+                else if (directory) {
+                    val job = currentCoroutineContext()[Job]!!
+                    scanJobs.update { it + (root.id to job) }
+                    try { scanner.scan(root, source) } finally {
+                        val job = currentCoroutineContext()[Job]
+                        scanJobs.update { if (it[root.id] === job) it - root.id else it }
+                    }
+                }
             }
             if (directory) {
                 picked += library.dao.resourcesForSource(id).first().filter { it.available }.map { resource ->
@@ -381,13 +395,55 @@ class ResourceLibraryViewModel(
         }
     }
 
-    fun scanCurrent() = action {
+    private suspend fun currentScanRoot(): LibraryScanRootEntity? {
         val state = browser.state.value
-        val parent = state.path.lastOrNull()?.takeIf { it.kind == MediaSourceEntryKind.DIRECTORY } ?: return@action
-        val source = sources.value.find { it.mediaSourceId == state.sourceId }?.source as? MediaSourceBrowser ?: return@action
-        val root = roots.value.find { it.sourceId == state.sourceId && Json.decodeFromString<MediaResourceRef>(it.referenceJson) == parent.reference }
-            ?: LibraryScanRootEntity(Uuid.randomString(), parent.reference.sourceId, Json.encodeToString(parent.reference), parent.name)
-        scanner.scan(root, source)
+        val parent = state.path.lastOrNull()?.takeIf { it.kind == MediaSourceEntryKind.DIRECTORY } ?: return null
+        return library.dao.scanRoots().first().find {
+            it.sourceId == state.sourceId && Json.decodeFromString<MediaResourceRef>(it.referenceJson) == parent.reference
+        } ?: LibraryScanRootEntity(Uuid.randomString(), parent.reference.sourceId, Json.encodeToString(parent.reference), parent.name)
+            .also { library.dao.upsertScanRoot(it) }
+    }
+
+    fun scanCurrent() = action { currentScanRoot()?.let(::scanRoot) }
+
+    fun configureCurrentScanRules() = action {
+        currentScanRoot()?.let { scanRules.open(it); subjectQuery.value = it.name }
+    }
+
+    fun configureScanRules(root: LibraryScanRootEntity) {
+        scanRules.open(root)
+        subjectQuery.value = root.name
+    }
+
+    fun scanRoot(root: LibraryScanRootEntity) {
+        val job = backgroundScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val source = sources.value.find { it.mediaSourceId == root.sourceId }?.source as? MediaSourceBrowser
+                    ?: error("Source does not support browsing")
+                scanner.scan(root, source)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error.value = e }
+            finally {
+                val runningJob = currentCoroutineContext()[Job]
+                scanJobs.update { if (it[root.id] === runningJob) it - root.id else it }
+            }
+        }
+        while (true) {
+            val current = scanJobs.value
+            if (current[root.id]?.let { !it.isCompleted && !it.isCancelled } == true) { job.cancel(); return }
+            if (scanJobs.compareAndSet(current, current + (root.id to job))) break
+        }
+        job.start()
+    }
+
+    fun cancelScan(rootId: String) {
+        val token = roots.value.find { it.id == rootId }?.activeScanToken
+        scanJobs.value[rootId]?.cancel()
+        if (token != null) backgroundScope.launch { library.dao.failScan(rootId, token, "扫描已取消") }
+    }
+    fun removeScanRoot(rootId: String) = action {
+        scanJobs.value[rootId]?.cancel()
+        library.dao.removeScanRoot(rootId)
     }
 
     fun removeBinding(resourceId: String, subjectId: Int, episodeId: Int) = action { library.removeBinding(resourceId, subjectId, episodeId) }
@@ -406,5 +462,5 @@ class ResourceLibraryViewModel(
 }
 
 fun createResourceLibraryViewModel(subjectId: Int? = null, episodeId: Int? = null, initialFiles: List<String> = emptyList()): ResourceLibraryViewModel = KoinPlatform.getKoin().run {
-    ResourceLibraryViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), subjectId, episodeId, initialFiles)
+    ResourceLibraryViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), subjectId, episodeId, initialFiles)
 }
