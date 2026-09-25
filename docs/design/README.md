@@ -8,5 +8,6 @@
 
 ## Media
 
+- [个人资源库与通用来源接入实施方案](media/resource-library-implementation.md)
 - [Media Selector 重构方案](media/media-selector-refactor.md)
 - [Media Selector 行为清单 (重构基线)](media/media-selector-behavior-catalog.md)
