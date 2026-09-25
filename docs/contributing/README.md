@@ -32,6 +32,7 @@
     - [MediaSource](code/media/media-source.md)
     - [手动浏览来源](code/media/manual-source-browsing.md)
     - [资源关联](code/media/resource-association.md)
+    - [资源页面](code/media/resource-library-ui.md)
     - [文件名匹配与对应预览](code/media/resource-association-preview.md)
     - [WebDAV 与 SMB](code/media/file-services.md)
     - [MediaSelector](code/media/media-selector.md)

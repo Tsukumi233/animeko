@@ -371,7 +371,9 @@ private fun MainScreenNavigationLayout(
                         val resourceViewModel = viewModel { createResourceLibraryViewModel() }
                         ResourceLibraryScreen(
                             resourceViewModel,
-                            onPlay = { subjectId, episodeId -> navigator.navigateEpisodeDetails(subjectId, episodeId) },
+                            onPlay = { subjectId, episodeId, resourceId ->
+                                navigator.navigateEpisodeDetails(subjectId, episodeId, libraryResourceId = resourceId)
+                            },
                             onSettings = { navigator.navigateSettings(SettingsTab.MEDIA_SOURCE) },
                             modifier = Modifier.fillMaxSize(),
                             windowInsets = pageWindowInsets,

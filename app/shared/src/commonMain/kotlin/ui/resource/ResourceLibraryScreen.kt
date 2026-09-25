@@ -34,7 +34,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun ResourceLibraryScreen(
     viewModel: ResourceLibraryViewModel,
-    onPlay: (subjectId: Int, episodeId: Int) -> Unit,
+    onPlay: (subjectId: Int, episodeId: Int, resourceId: String) -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
     windowInsets: WindowInsets = WindowInsets(0),
@@ -143,7 +143,7 @@ fun ResourceLibraryScreen(
 }
 
 @Composable
-private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int) -> Unit) {
+private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, String) -> Unit) {
     val resources by viewModel.resources.collectAsStateWithLifecycle()
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
     val boundIds = bindings.map { it.resourceId }.toSet()
@@ -173,7 +173,7 @@ private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int) 
                             TextButton({ viewModel.removeBinding(binding.resourceId, subjectId, binding.episodeId) }) { Text(stringResource(Lang.resource_unlink)) }
                         }
                     },
-                    modifier = Modifier.clickable { onPlay(subjectId, binding.episodeId) },
+                    modifier = Modifier.clickable { onPlay(subjectId, binding.episodeId, binding.resourceId) },
                 )
             }
         }
