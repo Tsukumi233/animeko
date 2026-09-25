@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.him188.ani.app.domain.media.cache.MediaCache
 import me.him188.ani.app.domain.media.cache.engine.TorrentMediaCacheEngine
+import me.him188.ani.app.domain.media.download.capability.requireCompatibleFileSelection
 import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
@@ -132,6 +133,7 @@ class TorrentMediaCacheStorage(
         return lock.withLock {
             // 已存在同一资源同一剧集的记录时直接复用; 统计订阅只对新建的记录进行, 避免同一记录被重复订阅.
             val existing = listFlow.value.firstOrNull { isSameMediaAndEpisode(it, media, metadata) }
+            existing?.requireCompatibleFileSelection(media, metadata.episodeId)
             val cache = existing ?: super.cache(media, metadata, episodeMetadata, false)
             check(cache is TorrentMediaCacheEngine.TorrentMediaCache) { "Cache does not implement TorrentMediaCache." }
 

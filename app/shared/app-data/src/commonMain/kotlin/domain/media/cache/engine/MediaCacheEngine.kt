@@ -59,6 +59,9 @@ interface MediaCacheEngine {
      */
     fun supports(media: Media): Boolean
 
+    /** Higher values take precedence; registration order breaks ties. */
+    fun downloadPriority(media: Media): Int = 0
+
     /**
      * "挂载" 到 composable 中, 以便进行需要虚拟 UI 的操作, 例如 WebView
      */

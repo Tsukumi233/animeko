@@ -23,6 +23,7 @@ import me.him188.ani.app.domain.media.cache.DownloaderStatus
 import me.him188.ani.app.domain.media.cache.MediaCache
 import me.him188.ani.app.domain.media.cache.MediaCacheState
 import me.him188.ani.app.domain.media.cache.engine.MediaCacheEngine
+import me.him188.ani.app.domain.media.download.capability.requireCompatibleFileSelection
 import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
@@ -77,7 +78,10 @@ class HttpMediaCacheStorage(
         return lock.withLock {
             listFlow.value.firstOrNull {
                 isSameMediaAndEpisode(it, media, metadata)
-            }?.let { return it }
+            }?.let {
+                it.requireCompatibleFileSelection(media, metadata.episodeId)
+                return it
+            }
 
             if (!engine.supports(media)) {
                 throw UnsupportedOperationException("Engine does not support media: $media")

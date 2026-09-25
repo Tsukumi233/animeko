@@ -30,6 +30,7 @@ import me.him188.ani.app.domain.media.TestMediaList
 import me.him188.ani.app.domain.media.cache.EpisodeCacheStatus
 import me.him188.ani.app.domain.media.cache.MediaCache
 import me.him188.ani.app.domain.media.cache.MediaCacheState
+import me.him188.ani.app.domain.media.cache.engine.MediaCacheEngine
 import me.him188.ani.app.domain.media.cache.engine.MediaCacheEngineKey
 import me.him188.ani.app.domain.media.cache.engine.MediaStats
 import me.him188.ani.app.domain.media.cache.storage.MediaCacheStorage
@@ -59,8 +60,10 @@ class MediaDownloadManagerTest {
         downloadSpeed = downloadSpeed.bytes,
     )
 
-    private fun storage(key: MediaCacheEngineKey, supports: Boolean = true) =
-        DownloadTestStorage(testDownloadEngine(key, supports))
+    private fun storage(key: MediaCacheEngineKey, supports: Boolean = true, priority: Int = 0) =
+        DownloadTestStorage(object : MediaCacheEngine by testDownloadEngine(key, supports) {
+            override fun downloadPriority(media: Media): Int = priority
+        })
 
     // downloads
 
@@ -382,11 +385,11 @@ class MediaDownloadManagerTest {
     // defaultStorageFor
 
     @Test
-    fun `default storage prefers WebM3u engine for BT media`() = runTest {
+    fun `default storage honors capability priority without inspecting media kinds`() = runTest {
         val torrent = storage(MediaCacheEngineKey.Anitorrent)
         val unsupported = storage(MediaCacheEngineKey.WebM3u, supports = false)
-        val web = storage(MediaCacheEngineKey.WebM3u)
-        val otherWeb = storage(MediaCacheEngineKey.WebM3u)
+        val web = storage(MediaCacheEngineKey.WebM3u, priority = 10)
+        val otherWeb = storage(MediaCacheEngineKey.WebM3u, priority = 10)
         val manager = manager(torrent, unsupported, web, otherWeb)
 
         assertSame(web, manager.defaultStorageFor(TestMediaList.first().copy(kind = MediaSourceKind.BitTorrent)))

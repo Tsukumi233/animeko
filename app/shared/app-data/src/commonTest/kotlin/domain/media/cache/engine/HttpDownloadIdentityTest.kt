@@ -16,6 +16,11 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import me.him188.ani.app.data.models.preference.PikPakConfig
 import me.him188.ani.app.data.persistent.database.dao.HttpCacheDownloadStateDao
+import me.him188.ani.app.domain.media.download.capability.DownloadTransport
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadAccessRequest
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapabilities
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapability
+import me.him188.ani.app.domain.media.download.capability.PreparedDownloadAccess
 import me.him188.ani.app.domain.media.TestMediaList
 import me.him188.ani.app.domain.media.player.data.MediaDataProvider
 import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
@@ -25,6 +30,7 @@ import me.him188.ani.datasources.api.EpisodeSort
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
 import me.him188.ani.datasources.api.source.MediaSourceKind
+import me.him188.ani.datasources.api.source.MediaResourceRef
 import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.utils.httpdownloader.DownloadId
 import me.him188.ani.utils.httpdownloader.DownloadOptions
@@ -62,6 +68,7 @@ class HttpDownloadIdentityTest {
         assertEquals(2, downloader.states.values.map { it.url }.distinct().size)
         firstCache.closeAndDeleteFiles()
         assertEquals(setOf(secondId), downloader.states.keys)
+        downloader.states[secondId] = downloader.states.getValue(secondId).copy(status = DownloadStatus.PAUSED)
         secondCache.resume()
         assertEquals(secondId, downloader.resumed.last())
     }
@@ -78,10 +85,12 @@ class HttpDownloadIdentityTest {
         val metadata = testMetadata(1)
         val mediaIdDerived = DownloadId("source-legacy")
         downloader.downloadWithId(mediaIdDerived, "https://example.com/legacy.mp4", DownloadOptions())
+        downloader.states[mediaIdDerived] = downloader.states.getValue(mediaIdDerived).copy(status = DownloadStatus.PAUSED)
         engine.restore(media, metadata, backgroundScope.coroutineContext)
         assertEquals(mediaIdDerived, downloader.resumed.last())
         engine.createCache(media, metadata, testEpisodeMetadata(1), backgroundScope.coroutineContext)
         val currentId = downloader.states.keys.single { it != mediaIdDerived }
+        downloader.states[currentId] = downloader.states.getValue(currentId).copy(status = DownloadStatus.PAUSED)
         engine.restore(media, metadata, backgroundScope.coroutineContext)
         assertEquals(currentId, downloader.resumed.last())
         assertTrue(mediaIdDerived in downloader.states)
@@ -126,6 +135,36 @@ class HttpDownloadIdentityTest {
         assertNotEquals(createId(slash, testMetadata(1)), createId(colon, testMetadata(1)))
     }
 
+    @Test
+    fun `source capability refreshes access using stable reference and episode context`() = runTest {
+        val downloader = FakeDownloader()
+        val media = TestMediaList.first().copy(kind = MediaSourceKind.CloudDrive,
+            download = ResourceLocation.SourceResource(MediaResourceRef("drive", "file")))
+        var prepared = 0
+        val capability = object : MediaDownloadCapability {
+            override val transport = DownloadTransport.HTTP
+            override fun supports(media: Media) = media.download is ResourceLocation.SourceResource
+            override suspend fun prepare(request: MediaDownloadAccessRequest, scope: CoroutineScope): PreparedDownloadAccess {
+                assertEquals("file", request.resourceRef?.resourceId)
+                assertEquals(EpisodeSort(1), request.episode.sort)
+                prepared++
+                return PreparedDownloadAccess.Http("https://example.com/$prepared.mp4",
+                    DownloadOptions(headers = mapOf("Authorization" to "token-$prepared"), contentIdentity = "hash"), refreshable = true)
+            }
+        }
+        val engine = engine(downloader, listOf(capability))
+        val cache = engine.createCache(media, testMetadata(1), testEpisodeMetadata(1), backgroundScope.coroutineContext)
+        val id = downloader.states.keys.single()
+        assertEquals(1, prepared)
+        downloader.states[id] = downloader.states.getValue(id).copy(status = DownloadStatus.FAILED)
+        cache.resume()
+        assertEquals(2, prepared)
+        assertEquals(listOf(id), downloader.refreshed)
+        assertEquals("https://example.com/2.mp4", downloader.states.getValue(id).url)
+        assertEquals("token-2", downloader.states.getValue(id).requestHeaders["Authorization"])
+        assertEquals(id, downloader.states.keys.single())
+    }
+
     private fun testMetadata(episodeId: Int, subjectId: Int = 1) = MediaCacheMetadata(
         subjectId = subjectId.toString(),
         episodeId = episodeId.toString(),
@@ -138,7 +177,7 @@ class HttpDownloadIdentityTest {
     private fun testEpisodeMetadata(episodeId: Int) =
         EpisodeMetadata("Episode $episodeId", EpisodeSort(episodeId), EpisodeSort(episodeId))
 
-    private fun engine(downloader: FakeDownloader) = HttpMediaCacheEngine(
+    private fun engine(downloader: FakeDownloader, sourceCapabilities: List<MediaDownloadCapability> = emptyList()) = HttpMediaCacheEngine(
         downloader,
         Path("/unused-test-downloads"),
         object : MediaResolver by TestUniversalMediaResolver {
@@ -167,6 +206,7 @@ class HttpDownloadIdentityTest {
             override suspend fun getById(id: DownloadId) = downloader.persisted[id]
         },
         pikpakConfig = { PikPakConfig.Default.copy(enabled = true) },
+        sourceCapabilities = { sourceCapabilities },
     )
 }
 
@@ -177,6 +217,7 @@ private class FakeDownloader : HttpDownloader {
     val states = mutableMapOf<DownloadId, DownloadState>()
     val resumed = mutableListOf<DownloadId>()
     val recreated = mutableListOf<DownloadId>()
+    val refreshed = mutableListOf<DownloadId>()
     val persistedOnly = mutableSetOf<DownloadId>()
 
     /** dao 视角下的全部记录, 包含 downloader 已丢失但仍持久化的任务. */
@@ -196,6 +237,12 @@ private class FakeDownloader : HttpDownloader {
                 requestHeaders = options.headers, mediaType = MediaType.MP4,
             )
         }
+    }
+
+    override suspend fun refreshRequest(downloadId: DownloadId, url: String, headers: Map<String, String>, contentIdentity: String?): Boolean {
+        refreshed += downloadId
+        states[downloadId] = states.getValue(downloadId).copy(url = url, requestHeaders = headers, contentIdentity = contentIdentity)
+        return true
     }
 
     override suspend fun resume(downloadId: DownloadId): Boolean {

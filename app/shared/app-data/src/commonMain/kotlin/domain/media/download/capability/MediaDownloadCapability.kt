@@ -16,7 +16,7 @@ data class MediaDownloadAccessRequest(
     val media: Media,
     val episode: EpisodeMetadata,
     val resourceRef: MediaResourceRef? = (media.download as? ResourceLocation.SourceResource)?.reference,
-    val selectedFilePath: String? = null,
+    val selectedFilePath: String? = episode.episodeId?.let { media.association?.selectedFilePaths?.get(it.toString()) },
 )
 
 enum class DownloadTransport { HTTP, BYTE_RANGE, TORRENT }
@@ -61,8 +61,11 @@ interface DownloadByteReader : AutoCloseable {
 }
 
 /** Registration order breaks ties; source protocols and credentials remain inside capabilities. */
-class MediaDownloadCapabilities(private val capabilities: List<MediaDownloadCapability>) {
-    fun find(media: Media, transport: DownloadTransport): MediaDownloadCapability? = capabilities
+class MediaDownloadCapabilities(
+    private val capabilities: List<MediaDownloadCapability>,
+    private val sourceCapabilities: () -> List<MediaDownloadCapability> = { emptyList() },
+) {
+    fun find(media: Media, transport: DownloadTransport): MediaDownloadCapability? = (capabilities + sourceCapabilities())
         .filter { it.transport == transport && it.supports(media) }
         .maxByOrNull { it.priority(media) }
 }

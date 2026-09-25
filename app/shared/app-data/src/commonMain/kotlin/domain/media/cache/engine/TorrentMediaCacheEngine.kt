@@ -11,6 +11,7 @@ package me.him188.ani.app.domain.media.cache.engine
 
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,8 @@ import me.him188.ani.app.domain.media.cache.LocalFileMediaCache
 import me.him188.ani.app.domain.media.cache.MediaCache
 import me.him188.ani.app.domain.media.cache.MediaCacheState
 import me.him188.ani.app.domain.media.cache.storage.MediaSaveDirProvider
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadAccessRequest
+import me.him188.ani.app.domain.media.download.capability.TorrentDownloadCapability
 import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.app.domain.media.resolver.TorrentMediaResolver
 import me.him188.ani.app.domain.torrent.TorrentEngine
@@ -467,8 +470,7 @@ class TorrentMediaCacheEngine(
         .flowOn(flowDispatcher)
 
     override fun supports(media: Media): Boolean {
-        return media.download is ResourceLocation.HttpTorrentFile
-                || media.download is ResourceLocation.MagnetLink
+        return TorrentDownloadCapability.supports(media)
     }
 
     @OptIn(ExperimentalStdlibApi::class)
@@ -482,6 +484,11 @@ class TorrentMediaCacheEngine(
         val data = torrent.torrentData
 
         val record = getOrMigrateEpisodeRecord(origin, metadata, torrent)
+        val explicitPath = origin.association?.selectedFilePaths?.get(metadata.episodeId)
+        require(explicitPath == null || record?.pathInTorrent.isNullOrEmpty() || explicitPath == record?.pathInTorrent) {
+            "Selected torrent file conflicts with the existing episode download"
+        }
+        val selectedPath = explicitPath ?: record?.pathInTorrent?.takeIf { it.isNotEmpty() }
         val localFile = record?.let { resolveCompletedFile(torrent, it) }
         if (localFile != null) {
             return LocalFileMediaCache(origin, metadata, localFile) {
@@ -499,6 +506,7 @@ class TorrentMediaCacheEngine(
                                     EncodedTorrentInfo.createRaw(data),
                                     metadata,
                                     coroutineContext,
+                                    selectedPath,
                                 ),
                             ).apply {
                                 resume()
@@ -518,7 +526,7 @@ class TorrentMediaCacheEngine(
             TorrentMediaCache(
                 origin = origin,
                 metadata = metadata,
-                fileHandle = getFileHandle(EncodedTorrentInfo.createRaw(data), metadata, parentContext),
+                fileHandle = getFileHandle(EncodedTorrentInfo.createRaw(data), metadata, parentContext, selectedPath),
             )
         }
     }
@@ -569,6 +577,7 @@ class TorrentMediaCacheEngine(
         encoded: EncodedTorrentInfo,
         metadata: MediaCacheMetadata,
         parentContext: CoroutineContext,
+        selectedFilePath: String? = null,
     ): FileHandle {
         val downloader = torrentEngine.getDownloader()
         val res = kotlinx.coroutines.withTimeoutOrNull(30_000) {
@@ -577,7 +586,12 @@ class TorrentMediaCacheEngine(
             onDownloadStarted(session)
 
             val files = session.getFiles()
-            val selectedFile = TorrentMediaResolver.selectVideoFileEntry(
+            val selectedFile = if (selectedFilePath != null) {
+                files.singleOrNull { it.pathInTorrent == selectedFilePath } ?: run {
+                    session.closeIfNotInUse()
+                    error("Selected file is missing from torrent: $selectedFilePath")
+                }
+            } else TorrentMediaResolver.selectVideoFileEntry(
                 files,
                 { fileName },
                 listOf(metadata.episodeName),
@@ -619,11 +633,12 @@ class TorrentMediaCacheEngine(
         parentContext: CoroutineContext
     ): TorrentMediaCache {
         if (!supports(origin)) throw UnsupportedOperationException("Media is not supported by this engine $this: ${origin.download}")
+        val access = TorrentDownloadCapability.prepare(MediaDownloadAccessRequest(origin, episodeMetadata, selectedFilePath = origin.association?.selectedFilePaths?.get(metadata.episodeId)), CoroutineScope(parentContext))
         // 创建缓存需要保证 torrent engine 一直可用, 所以 getFileHandle 直接启动协程创建好缓存.
         @OptIn(EnsureTorrentEngineIsAccessible::class)
         engineAccess.withServiceRequest("TorrentMediaCacheEngine#$this-createCache:${origin.mediaId}") {
             val downloader = torrentEngine.getDownloader()
-            val data = downloader.fetchTorrent(origin.download.uri)
+            val data = downloader.fetchTorrent(access.location.uri)
 
             val relativeDir = downloader.getSaveDirForTorrent(data).absolutePath.let { path ->
                 val stripped = path.substringAfter(baseSaveDirProvider.saveDir)
@@ -645,14 +660,20 @@ class TorrentMediaCacheEngine(
                         relativeDir = relativeDir,
                     ),
             )
-            if (dao.getEpisode(origin.mediaId, metadata.episodeId) == null) {
-                dao.upsertEpisode(TorrentCacheEpisodeEntity(mediaId = origin.mediaId, episodeId = metadata.episodeId))
+            val existingEpisode = dao.getEpisode(origin.mediaId, metadata.episodeId)
+            require(access.selectedFilePath == null || existingEpisode?.pathInTorrent.isNullOrEmpty() ||
+                access.selectedFilePath == existingEpisode?.pathInTorrent) {
+                "Selected torrent file conflicts with the existing episode download"
+            }
+            if (existingEpisode == null) {
+                dao.upsertEpisode(TorrentCacheEpisodeEntity(mediaId = origin.mediaId, episodeId = metadata.episodeId,
+                    pathInTorrent = access.selectedFilePath.orEmpty()))
             }
 
             return TorrentMediaCache(
                 origin = origin,
                 metadata = metadata,
-                fileHandle = getFileHandle(data, metadata, parentContext),
+                fileHandle = getFileHandle(data, metadata, parentContext, access.selectedFilePath),
             )
         }
     }

@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.stateIn
 import me.him188.ani.app.domain.media.cache.EpisodeCacheStatus
 import me.him188.ani.app.domain.media.cache.MediaCache
 import me.him188.ani.app.domain.media.cache.MediaCacheState
-import me.him188.ani.app.domain.media.cache.engine.MediaCacheEngineKey
+import me.him188.ani.app.domain.media.download.capability.requireCompatibleFileSelection
 import me.him188.ani.app.domain.media.cache.engine.MediaStats
 import me.him188.ani.app.domain.media.cache.engine.sum
 import me.him188.ani.app.domain.media.cache.storage.MediaCacheStorage
@@ -37,7 +37,6 @@ import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.app.ui.foundation.HasBackgroundScope
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
-import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.utils.coroutines.flows.flowOfEmptyList
 
 /**
@@ -116,15 +115,12 @@ class MediaDownloadManager(
     }
 
     /**
-     * 按注册顺序取第一个支持该资源的存储; BT 资源在 PikPak 引擎可用时优先经它下载.
+     * 按下载能力优先级选择支持该资源的存储，优先级相同时使用注册顺序。
      * @throws UnsupportedOperationException 没有存储支持该资源
      */
     fun defaultStorageFor(media: Media): MediaCacheStorage {
         val supported = storages.filter { it.engine.supports(media) }
-        if (media.kind == MediaSourceKind.BitTorrent) {
-            supported.firstOrNull { it.engine.engineKey == MediaCacheEngineKey.WebM3u }?.let { return it }
-        }
-        return supported.firstOrNull()
+        return supported.maxByOrNull { it.engine.downloadPriority(media) }
             ?: throw UnsupportedOperationException("No download storage supports media ${media.mediaId}")
     }
 
@@ -138,8 +134,10 @@ class MediaDownloadManager(
         storage: MediaCacheStorage = defaultStorageFor(media),
     ): MediaCache {
         for (other in storages) {
-            if (other === storage) continue
-            other.listFlow.first().firstOrNull { it.isSameMediaAndEpisode(media, metadata) }?.let { return it }
+            other.listFlow.first().firstOrNull { it.isSameMediaAndEpisode(media, metadata) }?.let { existing ->
+                existing.requireCompatibleFileSelection(media, metadata.episodeId)
+                return existing
+            }
         }
         return storage.cache(media, metadata, episodeMetadata)
     }

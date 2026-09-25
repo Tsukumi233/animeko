@@ -28,17 +28,21 @@ import me.him188.ani.app.data.models.preference.PikPakConfig
 import me.him188.ani.app.domain.media.cache.DownloaderStatus
 import me.him188.ani.app.domain.media.cache.MediaCache
 import me.him188.ani.app.domain.media.cache.MediaCacheState
+import me.him188.ani.app.domain.media.download.capability.DownloadTransport
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapability
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadAccessRequest
+import me.him188.ani.app.domain.media.download.capability.MediaDownloadCapabilities
+import me.him188.ani.app.domain.media.download.capability.PreparedDownloadAccess
+import me.him188.ani.app.domain.media.download.capability.ResolverHttpDownloadCapability
 import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.app.domain.media.resolver.MediaResolver
 import me.him188.ani.app.tools.Progress
 import me.him188.ani.app.tools.toProgress
 import me.him188.ani.app.torrent.api.files.averageRate
 import me.him188.ani.datasources.api.CachedMedia
-import me.him188.ani.datasources.api.DefaultMedia
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaCacheMetadata
 import me.him188.ani.datasources.api.MediaCacheProperties
-import me.him188.ani.datasources.api.source.MediaSourceKind
 import me.him188.ani.datasources.api.topic.FileSize
 import me.him188.ani.datasources.api.topic.FileSize.Companion.bytes
 import me.him188.ani.datasources.api.topic.ResourceLocation
@@ -62,8 +66,6 @@ import me.him188.ani.utils.logging.error
 import me.him188.ani.utils.logging.info
 import me.him188.ani.utils.logging.logger
 import me.him188.ani.utils.logging.warn
-import org.openani.mediamp.source.SeekableInputMediaData
-import org.openani.mediamp.source.UriMediaData
 import kotlin.coroutines.CoroutineContext
 
 class HttpMediaCacheEngine(
@@ -72,7 +74,11 @@ class HttpMediaCacheEngine(
     private val mediaResolver: MediaResolver,
     private val mediaSourceId: String,
     private val dao: HttpCacheDownloadStateDao,
-    private val pikpakConfig: () -> PikPakConfig = { PikPakConfig.Default },
+    pikpakConfig: () -> PikPakConfig = { PikPakConfig.Default },
+    sourceCapabilities: () -> List<MediaDownloadCapability> = { emptyList() },
+    private val capabilities: MediaDownloadCapabilities = MediaDownloadCapabilities(
+        listOf(ResolverHttpDownloadCapability(mediaResolver, pikpakConfig)), sourceCapabilities,
+    ),
 ) : MediaCacheEngine {
     override val engineKey: MediaCacheEngineKey = MediaCacheEngineKey.WebM3u
 
@@ -94,28 +100,9 @@ class HttpMediaCacheEngine(
         }
     }
 
-    override fun supports(media: Media): Boolean {
-        // Check that the media is not already cached
-        when (media) {
-            is CachedMedia -> return false
-            is DefaultMedia -> {} // for smart cast
-        }
+    override fun supports(media: Media): Boolean = capabilities.find(media, DownloadTransport.HTTP) != null
 
-        return when (media.download) {
-            is ResourceLocation.HttpStreamingFile -> mediaResolver.supports(media)
-            is ResourceLocation.HttpTorrentFile,
-            is ResourceLocation.MagnetLink,
-                -> pikpakConfig().enabled && mediaResolver.supports(media)
-
-            is ResourceLocation.LocalFile,
-                -> {
-                false
-            }
-
-            is ResourceLocation.WebVideo -> mediaResolver.supports(media)
-        }
-    }
-
+    override fun downloadPriority(media: Media): Int = capabilities.find(media, DownloadTransport.HTTP)?.priority(media) ?: 0
 
     @Composable
     override fun ComposeContent(): Unit = mediaResolver.ComposeContent()
@@ -125,17 +112,16 @@ class HttpMediaCacheEngine(
         metadata: MediaCacheMetadata,
         parentContext: CoroutineContext,
     ): MediaCache? {
-        if (!supports(origin)) throw UnsupportedOperationException("Media is not supported by this engine $this: ${origin.download}")
 
         logger.info { "Restarting cache '${origin.mediaId}'" }
         val downloadId = restoredHttpDownloadId(origin, metadata)
 
         // 注意, getState 一般不会返回 null, 除非 downloader 的 persistent datastore 出问题了 (例如文件损坏).
         if (downloader.getState(downloadId) != null) {
-            downloader.resume(downloadId) // ignore result.
+            if (origin.download !is ResourceLocation.SourceResource) resumeDownload(origin, metadata, downloadId, parentContext)
             // Task already exists
             logger.info { "Resumed download $downloadId" }
-            return HttpMediaCache(origin, downloadId, metadata)
+            return HttpMediaCache(origin, downloadId, metadata, parentContext)
         }
 
         val persistentState = dao.getById(downloadId) ?: kotlin.run {
@@ -147,9 +133,9 @@ class HttpMediaCacheEngine(
         downloader.downloadWithId(
             downloadId = downloadId,
             persistentState.url,
-            options = DownloadOptions(headers = persistentState.requestHeaders),
+            options = DownloadOptions(headers = persistentState.requestHeaders, contentIdentity = persistentState.contentIdentity),
         )
-        return HttpMediaCache(origin, downloadId, metadata)
+        return HttpMediaCache(origin, downloadId, metadata, parentContext)
     }
 
     override suspend fun createCache(
@@ -160,40 +146,34 @@ class HttpMediaCacheEngine(
     ): MediaCache {
         if (!supports(origin)) throw UnsupportedOperationException("Media is not supported by this engine $this: ${origin.download}")
 
-        val mediaDataProvider = mediaResolver.resolve(origin, episodeMetadata)
-        when (val mediaData = mediaDataProvider.open(CoroutineScope(parentContext))) {
-            is SeekableInputMediaData -> {
-                // This should not happen.
-                throw UnsupportedOperationException("SeekableInputMediaData is not supported")
-            }
+        val access = prepareAccess(origin, metadata, episodeMetadata, parentContext)
+        val downloadId = httpDownloadId(origin, metadata)
+        downloader.downloadWithId(downloadId, access.url, access.options)
+            ?: error("Failed to create HTTP download $downloadId")
+        return HttpMediaCache(origin, downloadId, metadata, parentContext)
+    }
 
-            is UriMediaData -> {
-                val downloadId = httpDownloadId(origin, metadata)
-                var options = DownloadOptions(headers = mediaData.headers)
-                if (origin.kind == MediaSourceKind.BitTorrent) {
-                    val config = pikpakConfig()
-                    options = options.copy(
-                        maxConcurrentSegments = config.downloadConcurrency.coerceIn(
-                            PikPakConfig.MIN_DOWNLOAD_CONCURRENCY,
-                            PikPakConfig.MAX_DOWNLOAD_CONCURRENCY,
-                        ),
-                        // PikPak CDN rejects Ktor's default JSON Accept header with 406.
-                        headers = options.headers + ("Accept" to "application/octet-stream"),
-                    )
+    private suspend fun prepareAccess(origin: Media, metadata: MediaCacheMetadata, episode: EpisodeMetadata, parentContext: CoroutineContext): PreparedDownloadAccess.Http {
+        val capability = capabilities.find(origin, DownloadTransport.HTTP)
+            ?: error("No HTTP download capability for ${origin.mediaId}")
+        return capability.prepare(MediaDownloadAccessRequest(origin, episode, selectedFilePath = origin.association?.selectedFilePaths?.get(metadata.episodeId)), CoroutineScope(parentContext))
+            as? PreparedDownloadAccess.Http ?: error("HTTP capability returned incompatible access")
+    }
+
+    private suspend fun resumeDownload(
+        origin: Media, metadata: MediaCacheMetadata, id: DownloadId, parentContext: CoroutineContext,
+    ) {
+        val state = downloader.getState(id) ?: return
+        if (state.status !in listOf(DownloadStatus.PAUSED, DownloadStatus.FAILED)) return
+        if (origin.download is ResourceLocation.SourceResource) {
+            val access = prepareAccess(origin, metadata, EpisodeMetadata(metadata.episodeName, metadata.episodeEp, metadata.episodeSort, metadata.episodeId.toIntOrNull()), parentContext)
+            if (access.refreshable) {
+                check(downloader.refreshRequest(id, access.url, access.options.headers, access.options.contentIdentity)) {
+                    "Download request could not be refreshed"
                 }
-                val state = downloader.downloadWithId(
-                    downloadId = downloadId,
-                    mediaData.uri,
-                    options = options,
-                ) ?: throw UnsupportedOperationException("Failed to create download job of $downloadId, state is null.")
-
-                return HttpMediaCache(
-                    origin,
-                    downloadId,
-                    metadata,
-                )
             }
         }
+        downloader.resume(id)
     }
 
     /**
@@ -246,6 +226,7 @@ class HttpMediaCacheEngine(
         override val origin: Media,
         internal val downloadId: DownloadId,
         override val metadata: MediaCacheMetadata,
+        private val parentContext: CoroutineContext,
     ) : MediaCache {
         override val state: Flow<MediaCacheState> =
             downloader.getProgressFlow(downloadId).map { it.status.toMediaCacheState() }
@@ -355,7 +336,7 @@ class HttpMediaCacheEngine(
         }
 
         override suspend fun resume() {
-            downloader.resume(downloadId)
+            resumeDownload(origin, metadata, downloadId, parentContext)
         }
 
         override suspend fun closeAndDeleteFiles() {
