@@ -292,6 +292,8 @@ private fun ResourceEmptyText(text: String) { Text(text, modifier = Modifier.pad
 
 @Composable
 private fun ResourceAssociationDialog(viewModel: ResourceLibraryViewModel) {
+    val sources by viewModel.sources.collectAsStateWithLifecycle()
+    val sourceNames = sources.associate { it.mediaSourceId to it.source.info.displayName }
     val state by viewModel.association.collectAsStateWithLifecycle()
     if (!state.visible) return
     val selected by viewModel.selected.collectAsStateWithLifecycle()
@@ -335,21 +337,21 @@ private fun ResourceAssociationDialog(viewModel: ResourceLibraryViewModel) {
                         val target = state.targets[input.identity]
                         val subject = state.subjects.find { it.subjectId == target?.subjectId }
                         val episode = subject?.episodes?.find { it.episodeId == target?.episodeId }
-                        Column(Modifier.padding(vertical = 8.dp)) {
-                            Text(input.fileName)
-                            Box {
-                                TextButton({ expanded = true }, enabled = !state.saving && input.identity !in state.ignored) {
-                                    Text(if (episode == null) stringResource(Lang.resource_choose_episode) else "${subject?.subjectInfo?.displayName.orEmpty()} · ${episode.episodeInfo.sort}")
-                                }
-                                DropdownMenu(expanded, { expanded = false }) {
-                                    state.subjects.forEach { item -> item.episodes.forEach { ep ->
-                                        DropdownMenuItem({ Text("${item.subjectInfo.displayName} · ${ep.episodeInfo.sort} ${ep.episodeInfo.displayName}") }, {
-                                            viewModel.setTarget(input.identity, ResourceEpisodeTarget(item.subjectId, ep.episodeId)); expanded = false
-                                        })
-                                    } }
-                                }
+                        ResourceAssociationFileRow(
+                            input, sourceNames[input.identity.sourceId],
+                            targetLabel = if (episode == null) stringResource(Lang.resource_choose_episode) else "${subject?.subjectInfo?.displayName.orEmpty()} · ${episode.episodeInfo.sort}",
+                            ignored = input.identity in state.ignored,
+                            enabled = !state.saving,
+                            onChooseEpisode = { expanded = true },
+                            onIgnore = { viewModel.ignore(input.identity, it) },
+                        ) {
+                            DropdownMenu(expanded, { expanded = false }) {
+                                state.subjects.forEach { item -> item.episodes.forEach { ep ->
+                                    DropdownMenuItem({ Text("${item.subjectInfo.displayName} · ${ep.episodeInfo.sort} ${ep.episodeInfo.displayName}") }, {
+                                        viewModel.setTarget(input.identity, ResourceEpisodeTarget(item.subjectId, ep.episodeId)); expanded = false
+                                    })
+                                } }
                             }
-                            Row { Checkbox(input.identity in state.ignored, { viewModel.ignore(input.identity, it) }, enabled = !state.saving); Text(stringResource(Lang.resource_ignore)) }
                         }
                     }
                 }
