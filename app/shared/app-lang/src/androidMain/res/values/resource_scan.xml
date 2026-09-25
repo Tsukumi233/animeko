@@ -20,4 +20,5 @@
     <string name="resource_scan_replace_rules">Saving replaces this folder’s existing rules with the mapping shown below. Review the subject, titles and episode mapping before confirming.</string>
     <string name="resource_search_index">Search indexed files</string>
     <string name="resource_search_index_hint">Searches saved file names and paths in this source. Unscanned files are not included.</string>
+    <string name="resource_source_unavailable">Source unavailable</string>
 </resources>

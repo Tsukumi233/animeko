@@ -171,6 +171,8 @@ fun ResourceLibraryScreen(
 private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, String) -> Unit) {
     val resources by viewModel.resources.collectAsStateWithLifecycle()
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
+    val sources by viewModel.sources.collectAsStateWithLifecycle()
+    val bySource = sources.associateBy { it.mediaSourceId }
     val boundIds = bindings.map { it.resourceId }.toSet()
     LazyColumn(Modifier.fillMaxSize()) {
         if (resources.isEmpty()) item { ResourceEmptyText(stringResource(Lang.resource_empty_library)) }
@@ -183,33 +185,35 @@ private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, 
                 val resource = resources.find { it.id == binding.resourceId }
                 val subject by viewModel.subjectCollection(subjectId).collectAsStateWithLifecycle()
                 val episode = subject?.episodes?.find { it.episodeId == binding.episodeId }?.episodeInfo
-                ListItem(
-                    headlineContent = { Text(resource?.name.orEmpty()) },
-                    supportingContent = {
-                        Column {
-                            if (episode != null) Text("${episode.sort} ${episode.displayName}")
-                            binding.selectedFilePath?.let { Text(it) }
-                            if (resource?.available == false) Text(stringResource(Lang.resource_missing))
-                        }
-                    },
+                val source = bySource[binding.sourceId]?.source
+                ResourceLibraryEntry(
+                    name = resource?.name.orEmpty(),
+                    sourceName = source?.info?.displayName,
+                    sourceKind = source?.kind,
+                    episodeLabel = episode?.let { "${it.sort} ${it.displayName}" },
+                    filePath = binding.selectedFilePath,
+                    missing = resource?.available == false,
+                    onClick = { onPlay(subjectId, binding.episodeId, binding.resourceId) },
                     trailingContent = {
                         Row {
                             TextButton({ viewModel.selectIndexed(binding.resourceId, binding.selectedFilePath, ResourceEpisodeTarget(binding.subjectId, binding.episodeId)) }) { Text(stringResource(Lang.resource_edit)) }
                             TextButton({ viewModel.removeBinding(binding.resourceId, subjectId, binding.episodeId) }) { Text(stringResource(Lang.resource_unlink)) }
                         }
                     },
-                    modifier = Modifier.clickable { onPlay(subjectId, binding.episodeId, binding.resourceId) },
                 )
             }
         }
         val pending = resources.filterNot { it.id in boundIds }
         if (pending.isNotEmpty()) item { Text(stringResource(Lang.resource_pending), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp)) }
         items(pending, key = { it.id }) { resource ->
-            ListItem(
-                headlineContent = { Text(resource.name) },
-                supportingContent = if (!resource.available) ({ Text(stringResource(Lang.resource_missing)) }) else null,
+            val source = bySource[resource.sourceId]?.source
+            ResourceLibraryEntry(
+                name = resource.name,
+                sourceName = source?.info?.displayName,
+                sourceKind = source?.kind,
+                missing = !resource.available,
+                onClick = { viewModel.selectIndexed(resource.id) },
                 trailingContent = { TextButton({ viewModel.removeResource(resource.id) }) { Text(stringResource(Lang.resource_remove_index)) } },
-                modifier = Modifier.clickable { viewModel.selectIndexed(resource.id) },
             )
         }
     }

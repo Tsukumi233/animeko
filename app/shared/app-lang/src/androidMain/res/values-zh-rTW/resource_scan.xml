@@ -20,4 +20,5 @@
     <string name="resource_scan_replace_rules">儲存會以下方對應表取代此資料夾已有的規則。請重新核對條目、標題範圍與集數對應關係。</string>
     <string name="resource_search_index">搜尋已索引內容</string>
     <string name="resource_search_index_hint">搜尋此來源中已儲存的檔案名稱和路徑，不包括尚未掃描的檔案。</string>
+    <string name="resource_source_unavailable">來源無法使用</string>
 </resources>

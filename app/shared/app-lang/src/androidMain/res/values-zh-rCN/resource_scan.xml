@@ -20,4 +20,5 @@
     <string name="resource_scan_replace_rules">保存会用下方对应表替换此目录已有的规则。请重新核对条目、标题范围与剧集对应关系。</string>
     <string name="resource_search_index">搜索已索引内容</string>
     <string name="resource_search_index_hint">搜索此来源中已保存的文件名和路径，不包括尚未扫描的文件。</string>
+    <string name="resource_source_unavailable">来源不可用</string>
 </resources>
