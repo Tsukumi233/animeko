@@ -82,7 +82,10 @@ class ResourceLibraryRepository(
     }
 
     /** 调用方先完成条目与剧集缓存，确认整批后一次提交，不暴露半批关联。 */
-    suspend fun associateBatch(inputs: List<ResourceAssociationInput>) = writes.withLock {
+    suspend fun associateBatch(
+        inputs: List<ResourceAssociationInput>,
+        replaceFileBindings: Boolean = false,
+    ) = writes.withLock {
         require(inputs.all { it.subjectId > 0 && it.episodeId > 0 && it.media.mediaSourceId == it.entry.reference.sourceId })
         val resources = LinkedHashMap<Pair<String, String>, LibraryResourceEntity>()
         val bindings = inputs.map { input ->
@@ -94,7 +97,7 @@ class ResourceLibraryRepository(
             LibraryEpisodeBindingEntity(resource.id, resource.sourceId, input.subjectId, input.episodeId,
                 json.encodeToString(Media.serializer(), input.media), input.selectedFilePath)
         }
-        dao.confirmBindings(resources.values.toList(), bindings)
+        dao.confirmBindings(resources.values.toList(), bindings, replaceFileBindings)
         mutableRevision.update { it + 1 }
     }
 

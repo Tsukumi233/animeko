@@ -38,10 +38,13 @@ data class TorrentResourceListing(
  * torrent task remain owned by the engine; only an unused metadata session may be closed.
  */
 class TorrentResourceBrowser(
-    private val engine: TorrentEngine,
+    private val engine: () -> TorrentEngine?,
     private val engineAccess: TorrentEngineAccess,
     private val timeoutMillis: Long = 60_000,
 ) {
+    constructor(engine: TorrentEngine, engineAccess: TorrentEngineAccess, timeoutMillis: Long = 60_000) :
+        this({ engine }, engineAccess, timeoutMillis)
+
     init {
         require(timeoutMillis > 0)
     }
@@ -49,6 +52,7 @@ class TorrentResourceBrowser(
     @OptIn(EnsureTorrentEngineIsAccessible::class)
     suspend fun browse(reference: MediaResourceRef): TorrentResourceListing {
         val media = TorrentMediaSourceReferences.decode(reference)
+        val engine = engine() ?: throw UnsupportedOperationException("Torrent browsing is not supported on this platform")
         check(engine.isSupported) { "Torrent browsing is not supported on this platform" }
         return engineAccess.withServiceRequest(Any()) {
             withTimeout(timeoutMillis) {

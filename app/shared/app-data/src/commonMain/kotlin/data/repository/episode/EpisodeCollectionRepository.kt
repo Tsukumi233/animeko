@@ -10,6 +10,7 @@
 package me.him188.ani.app.data.repository.episode
 
 import androidx.paging.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
@@ -65,16 +66,24 @@ class EpisodeCollectionRepository(
      * 获取指定条目的指定剧集信息, 如果没有则从网络获取并缓存
      */
     fun episodeCollectionInfoFlow(subjectId: Int, episodeId: Int): Flow<EpisodeCollectionInfo> {
-        return episodeCollectionDao.findByEpisodeId(episodeId).map { entity ->
-            entity?.takeIf { !it.isExpired() }
-                ?.toEpisodeCollectionInfo()
-                ?: kotlin.run {
-                    episodeService.getEpisodeCollectionById(subjectId, episodeId)
-                        ?.also {
-                            episodeCollectionDao.upsert(it.toEntity(subjectId))
-                        }
-                        ?: throw NoSuchElementException("Episode $episodeId not found")
+        return episodeCollectionDao.findByEpisodeId(episodeId).transform { cached ->
+            val entity = cached?.takeIf { it.subjectId == subjectId }
+            if (entity != null) emit(entity.toEpisodeCollectionInfo())
+            if (entity == null || entity.isExpired()) {
+                try {
+                    val fetched = episodeService.getEpisodeCollectionById(subjectId, episodeId)
+                    if (fetched != null) {
+                        episodeCollectionDao.upsert(fetched.toEntity(subjectId))
+                    } else if (entity == null) {
+                        throw NoSuchElementException("Episode $episodeId not found")
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (entity == null) throw e
+                    logger.warn(e) { "Failed to refresh episode $episodeId, using cached metadata" }
                 }
+            }
         }.flowOn(defaultDispatcher)
     }
 

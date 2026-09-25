@@ -30,6 +30,9 @@ import me.him188.ani.app.domain.mediasource.pikpak.PikPakAccountServices
 import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSource
 
 import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanner
+import me.him188.ani.app.domain.mediasource.library.AssociateResourcesUseCase
+import me.him188.ani.app.domain.mediasource.torrent.TorrentResourceBrowser
+import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
 
 import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSource
 
@@ -460,6 +463,14 @@ private fun KoinApplication.otherModules(
     }
     single<LocalResourceAccess> { createLocalResourceAccess(getContext()) }
     single { ResourceLibraryScanner(get()) }
+    single { TorrentResourceBrowser({ get<TorrentManager>().engines.firstOrNull { it.isSupported } }, get()) }
+    single {
+        AssociateResourcesUseCase(get(), get()) {
+            get<MediaSourceManager>().allInstances.first().mapNotNull { instance ->
+                (instance.source as? MediaSourceResourceFactory)?.let { instance.mediaSourceId to it }
+            }.toMap()
+        }
+    }
 
     // Media source services
     single<MediaSourceCodecManager> {

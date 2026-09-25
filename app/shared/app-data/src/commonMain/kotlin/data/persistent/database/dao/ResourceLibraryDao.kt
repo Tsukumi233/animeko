@@ -194,11 +194,26 @@ abstract class ResourceLibraryDao {
         removeSuggestion(resource.id)
     }
 
+    @Query("""
+        DELETE FROM library_episode_binding WHERE resourceId = :resourceId
+        AND (selectedFilePath IS :selectedFilePath OR (subjectId = :subjectId AND episodeId = :episodeId))
+    """)
+    protected abstract suspend fun removeConflictingFileBindings(
+        resourceId: String, selectedFilePath: String?, subjectId: Int, episodeId: Int,
+    )
+
     @Transaction
-    open suspend fun confirmBindings(resources: List<LibraryResourceEntity>, bindings: List<LibraryEpisodeBindingEntity>) {
+    open suspend fun confirmBindings(
+        resources: List<LibraryResourceEntity>,
+        bindings: List<LibraryEpisodeBindingEntity>,
+        replaceFileBindings: Boolean = false,
+    ) {
         val byId = resources.associateBy { it.id }
         require(bindings.all { byId[it.resourceId]?.sourceId == it.sourceId })
         resources.forEach { upsertResource(it) }
+        if (replaceFileBindings) {
+            bindings.forEach { removeConflictingFileBindings(it.resourceId, it.selectedFilePath, it.subjectId, it.episodeId) }
+        }
         bindings.forEach { upsertBinding(it) }
         resources.forEach { removeSuggestion(it.id) }
     }

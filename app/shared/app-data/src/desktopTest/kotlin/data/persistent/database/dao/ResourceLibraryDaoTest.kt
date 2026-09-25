@@ -22,6 +22,29 @@ class ResourceLibraryDaoTest {
     private fun resource() = LibraryResourceEntity("video", "disk", "01.mkv", "{}", "01.mkv", "VIDEO")
 
     @Test
+    fun `correcting one video replaces its old episode without removing other versions`() = test { dao ->
+        val otherVersion = resource().copy(id = "other", resourceKey = "other.mkv")
+        val original = LibraryEpisodeBindingEntity("video", "disk", 1, 11, "{}")
+        val other = original.copy(resourceId = "other")
+        dao.confirmBindings(listOf(resource(), otherVersion), listOf(original, other))
+        val correction = original.copy(subjectId = 2, episodeId = 21)
+        dao.confirmBindings(listOf(resource()), listOf(correction), replaceFileBindings = true)
+        assertEquals(setOf(correction, other), dao.bindings().first().toSet())
+    }
+
+    @Test
+    fun `torrent file corrections can swap episodes atomically and retain untouched files`() = test { dao ->
+        val torrent = resource().copy(entryKind = "TORRENT")
+        val first = LibraryEpisodeBindingEntity("video", "disk", 1, 11, "{}", "A/video.mkv")
+        val second = first.copy(episodeId = 12, selectedFilePath = "B/video.mkv")
+        val third = first.copy(episodeId = 13, selectedFilePath = "C/video.mkv")
+        dao.confirmBindings(listOf(torrent), listOf(first, second, third))
+        val swapped = listOf(first.copy(episodeId = 12), second.copy(episodeId = 11))
+        dao.confirmBindings(listOf(torrent), swapped, replaceFileBindings = true)
+        assertEquals((swapped + third).toSet(), dao.bindings().first().toSet())
+    }
+
+    @Test
     fun `batch validates every binding before exposing any associations`() = test { dao ->
         val first = resource()
         val second = first.copy(id = "video2", resourceKey = "02.mkv")

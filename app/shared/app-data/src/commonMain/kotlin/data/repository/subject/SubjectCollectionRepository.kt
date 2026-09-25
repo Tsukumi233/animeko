@@ -130,6 +130,9 @@ abstract class SubjectCollectionRepository(
 
     abstract fun subjectCollectionFlow(subjectId: Int): Flow<SubjectCollectionInfo>
 
+    /** 资源关联使用完整剧集列表，包含被日常浏览偏好隐藏的 SP；已有缓存可离线使用。 */
+    open fun librarySubjectCollectionFlow(subjectId: Int): Flow<SubjectCollectionInfo> = subjectCollectionFlow(subjectId)
+
     abstract fun subjectCollectionsPager(
         query: CollectionsFilterQuery = CollectionsFilterQuery.Empty,
         pagingConfig: PagingConfig = PagingConfig(
@@ -298,36 +301,52 @@ class SubjectCollectionRepositoryImpl(
     override fun subjectCollectionFlow(
         subjectId: Int
     ): Flow<SubjectCollectionInfo> = getEpisodeTypeFiltersUseCase().flatMapLatest { epTypes ->
-        subjectCollectionDao.findById(subjectId)
-            .restartOnNewLogin(sessionManager)
-            .transform { existing ->
-                if (existing != null) {
-                    // 不管是不是过期都先 emit, 确保离线时能播放
-                    emit(existing)
-                }
+        subjectCollectionFlow(subjectId, episodeCollectionDao.filterBySubjectId(subjectId, epTypes))
+    }.flowOn(defaultDispatcher)
 
-                // 如果没有缓存, 则 fetch 然后插入 subject 缓存
-                if (existing == null || existing.isExpired()) {
-                    refetchSubjectCollection(subjectId)
-                    // TODO: 2025/5/24 handle subject not found 
+    override fun librarySubjectCollectionFlow(subjectId: Int): Flow<SubjectCollectionInfo> =
+        subjectCollectionFlow(subjectId, episodeCollectionDao.filterBySubjectId(subjectId)).flowOn(defaultDispatcher)
+
+    private fun subjectCollectionFlow(
+        subjectId: Int,
+        episodesFlow: Flow<List<EpisodeCollectionEntity>>,
+    ): Flow<SubjectCollectionInfo> = subjectCollectionDao.findById(subjectId)
+        .restartOnNewLogin(sessionManager)
+        .transform { existing ->
+            if (existing != null) {
+                // 不管是不是过期都先 emit, 确保离线时能播放
+                emit(existing)
+            }
+
+            // 如果没有缓存, 则 fetch 然后插入 subject 缓存
+            if (existing == null || existing.isExpired()) {
+                try {
+                    val fetched = refetchSubjectCollection(subjectId)
+                    if (existing == null && fetched == null) {
+                        throw NoSuchElementException("Subject $subjectId not found")
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (existing == null) throw e
+                    logger.warn(e) { "Failed to refresh subject $subjectId, using cached metadata" }
                 }
             }
-            .filterNotNull()
-            // 有 subject 缓存后才能从 episodeCollectionRepository fetch episodes
-            .combine(
-                episodeCollectionDao
-                    .filterBySubjectId(subjectId, epTypes)
-                    .map { list -> list.map { it.toEpisodeCollectionInfo() } }
-                    .distinctUntilChanged(),
+        }
+        .filterNotNull()
+        .flatMapLatest { entity ->
+            // 获取条目后订阅剧集，首次在线加载必须读到已写入的完整剧集列表。
+            combine(
+                episodesFlow.map { list -> list.map { it.toEpisodeCollectionInfo() } }.distinctUntilChanged(),
                 nsfwModeSettingsFlow,
-            ) { entity, episodes, nsfwModeSettings ->
+            ) { episodes, nsfwModeSettings ->
                 entity.toSubjectCollectionInfo(
                     episodes = episodes,
                     currentDate = getCurrentDate(),
                     nsfwModeSettings = nsfwModeSettings,
                 )
             }
-    }.flowOn(defaultDispatcher)
+        }
 
     /**
      * 从服务端拉取条目 (含用户的收藏状态与剧集) 并写入本地缓存: 覆盖同 id 的旧行 (`lastFetched` 为当前时间), 删除本地多余的剧集.

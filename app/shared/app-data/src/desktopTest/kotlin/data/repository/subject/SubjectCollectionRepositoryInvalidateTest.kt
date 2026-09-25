@@ -43,6 +43,21 @@ import me.him188.ani.app.data.persistent.database.dao.SubjectCollectionDao
 import me.him188.ani.app.data.persistent.database.dao.SubjectCollectionEntity
 import me.him188.ani.app.data.repository.episode.AnimeScheduleRepository
 import me.him188.ani.app.data.repository.episode.EpisodeCollectionRepository
+import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
+import me.him188.ani.app.domain.mediasource.library.AssociateResourcesUseCase
+import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeSelection
+import me.him188.ani.datasources.api.DefaultMedia
+import me.him188.ani.datasources.api.Media
+import me.him188.ani.datasources.api.MediaProperties
+import me.him188.ani.datasources.api.source.MediaFetchRequest
+import me.him188.ani.datasources.api.source.MediaResourceRef
+import me.him188.ani.datasources.api.source.MediaSourceEntry
+import me.him188.ani.datasources.api.source.MediaSourceEntryKind
+import me.him188.ani.datasources.api.source.MediaSourceKind
+import me.him188.ani.datasources.api.source.MediaSourceLocation
+import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
+import me.him188.ani.datasources.api.topic.FileSize
+import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.app.domain.session.SessionEvent
 import me.him188.ani.app.domain.session.SessionState
 import me.him188.ani.app.domain.session.SessionStateProvider
@@ -70,6 +85,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -210,17 +226,21 @@ class SubjectCollectionRepositoryInvalidateTest {
         val database: AniDatabase,
         val service: FakeSubjectService,
         val repository: SubjectCollectionRepository,
+        val episodes: EpisodeCollectionRepository,
     ) {
         val dao: SubjectCollectionDao get() = database.subjectCollection()
     }
 
-    private fun runRepositoryTest(block: suspend Fixture.() -> Unit) = runBlocking {
+    private fun runRepositoryTest(
+        episodeTypes: List<EpisodeType> = EpisodeType.entries,
+        block: suspend Fixture.() -> Unit,
+    ) = runBlocking {
         val database = createTestAniDatabase()
         try {
             val service = FakeSubjectService()
             val episodeService = EpisodeServiceImpl(UnusedSubjectsApi)
             val animeScheduleRepository = AnimeScheduleRepository(AnimeScheduleService(UnusedScheduleApi))
-            val getEpisodeTypeFiltersUseCase = GetEpisodeTypeFiltersUseCase { flowOf(EpisodeType.entries) }
+            val getEpisodeTypeFiltersUseCase = GetEpisodeTypeFiltersUseCase { flowOf(episodeTypes) }
             lateinit var repository: SubjectCollectionRepositoryImpl
             val episodeCollectionRepository = EpisodeCollectionRepository(
                 subjectDao = database.subjectCollection(),
@@ -242,7 +262,7 @@ class SubjectCollectionRepositoryInvalidateTest {
                 nsfwModeSettingsFlow = flowOf(NsfwMode.DISPLAY),
                 getEpisodeTypeFiltersUseCase = getEpisodeTypeFiltersUseCase,
             )
-            Fixture(database, service, repository).block()
+            Fixture(database, service, repository, episodeCollectionRepository).block()
         } finally {
             database.close()
         }
@@ -394,6 +414,157 @@ class SubjectCollectionRepositoryInvalidateTest {
         selfCollectionType = UnifiedCollectionType.DONE,
         lastFetched = lastFetched,
     )
+
+    @Test
+    fun `library metadata includes cached special episodes hidden from regular browsing`() =
+        runRepositoryTest(episodeTypes = listOf(EpisodeType.MainStory)) {
+            dao.upsert(subject(1, currentTimeMillis()))
+            database.episodeCollection().upsert(listOf(
+                episode(1, 11, 1, 0),
+                episode(1, 12, 2, 0).copy(episodeType = EpisodeType.SP),
+            ))
+            assertEquals(listOf(11), repository.subjectCollectionFlow(1).first().episodes.map { it.episodeId })
+            assertEquals(listOf(11, 12), repository.librarySubjectCollectionFlow(1).first().episodes.map { it.episodeId })
+        }
+
+    @Test
+    fun `expired offline library metadata remains observable after refresh failure`() = runRepositoryTest {
+        dao.upsert(subject(1, 0))
+        database.episodeCollection().upsert(episode(1, 11, 1, 0))
+        service.failingSubjectIds += 1
+        repository.librarySubjectCollectionFlow(1).test {
+            assertEquals(listOf(11), awaitItem().episodes.map { it.episodeId })
+            service.firstFetch.await()
+            dao.upsert(subject(1, currentTimeMillis()).copy(nameCn = "本地条目"))
+            var updated = awaitItem()
+            while (updated.subjectInfo.nameCn != "本地条目") updated = awaitItem()
+            assertEquals(listOf(11), updated.episodes.map { it.episodeId })
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `uncached missing library subject fails instead of waiting forever`() = runRepositoryTest {
+        repository.librarySubjectCollectionFlow(999).test {
+            assertTrue(awaitError() is NoSuchElementException)
+        }
+    }
+
+    @Test
+    fun `initial library load waits for episode cache before publishing subject`() = runRepositoryTest {
+        service.serverSubjects[1] = serverSubject(1, episodeIds = listOf(11, 12))
+        assertEquals(listOf(11, 12), repository.librarySubjectCollectionFlow(1).first().episodes.map { it.episodeId })
+    }
+
+    @Test
+    fun `expired episode is available offline and continues observing cached updates`() = runRepositoryTest {
+        dao.upsert(subject(1, 0))
+        database.episodeCollection().upsert(episode(1, 11, 1, 0))
+        episodes.episodeCollectionInfoFlow(1, 11).test {
+            assertEquals(11, awaitItem().episodeId)
+            database.episodeCollection().upsert(episode(1, 11, 1, currentTimeMillis()).copy(nameCn = "更新剧集"))
+            var updated = awaitItem()
+            while (updated.episodeInfo.nameCn != "更新剧集") updated = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    private fun video(id: String) = MediaSourceEntry(MediaResourceRef("source", id), id, MediaSourceEntryKind.VIDEO)
+
+    private fun media(reference: MediaResourceRef) = DefaultMedia(
+        mediaId = "source:${reference.resourceId}", mediaSourceId = "source", originalUrl = "",
+        download = ResourceLocation.SourceResource(reference), originalTitle = reference.resourceId, publishedTime = 0,
+        properties = MediaProperties(null, null, emptyList(), "", "", FileSize.Unspecified, null),
+        episodeRange = null, location = MediaSourceLocation.Local, kind = MediaSourceKind.LocalFile,
+    )
+
+    private fun factory(block: (MediaResourceRef, MediaFetchRequest) -> Media) = object : MediaSourceResourceFactory {
+        override suspend fun createMedia(reference: MediaResourceRef, request: MediaFetchRequest): Media = block(reference, request)
+    }
+
+    @Test
+    fun `association can confirm offline special episode with exact identity`() =
+        runRepositoryTest(episodeTypes = listOf(EpisodeType.MainStory)) {
+            dao.upsert(subject(1, 0))
+            database.episodeCollection().upsert(episode(1, 12, 1, 0).copy(episodeType = EpisodeType.SP))
+            service.failingSubjectIds += 1
+            val library = ResourceLibraryRepository(database.resourceLibraryDao())
+            val useCase = AssociateResourcesUseCase(repository, library) {
+                mapOf("source" to factory { reference, request ->
+                    assertEquals("12", request.episodeId)
+                    assertEquals(listOf("12"), request.episodes.map { it.episodeId })
+                    media(reference)
+                })
+            }
+            val result = useCase(listOf(ResourceEpisodeSelection(video("SP.mkv"), 1, 12)))
+            assertEquals(listOf("12"), result.single().media.association?.episodeIds)
+            assertEquals(12, library.bindings.first().single().episodeId)
+        }
+
+    @Test
+    fun `failed source preparation does not save a partial association batch`() = runRepositoryTest {
+        dao.upsert(subject(1, currentTimeMillis()))
+        database.episodeCollection().upsert(listOf(episode(1, 11, 1, 0), episode(1, 12, 2, 0)))
+        val library = ResourceLibraryRepository(database.resourceLibraryDao())
+        val useCase = AssociateResourcesUseCase(repository, library) {
+            mapOf("source" to factory { reference, _ ->
+                check(reference.resourceId != "bad.mkv") { "Unavailable resource" }
+                media(reference)
+            })
+        }
+        assertFailsWith<IllegalStateException> {
+            useCase(listOf(ResourceEpisodeSelection(video("good.mkv"), 1, 11), ResourceEpisodeSelection(video("bad.mkv"), 1, 12)))
+        }
+        assertTrue(library.bindings.first().isEmpty())
+        assertTrue(library.resources.first().isEmpty())
+        assertEquals(0L, library.revision.value)
+    }
+
+    @Test
+    fun `association rejects an episode outside the selected subject`() = runRepositoryTest {
+        dao.upsert(subject(1, currentTimeMillis()))
+        database.episodeCollection().upsert(episode(1, 11, 1, 0))
+        val library = ResourceLibraryRepository(database.resourceLibraryDao())
+        val useCase = AssociateResourcesUseCase(repository, library) { mapOf("source" to factory { _, _ -> error("Must not prepare") }) }
+        assertFailsWith<NoSuchElementException> { useCase(listOf(ResourceEpisodeSelection(video("a.mkv"), 1, 99))) }
+        assertTrue(library.bindings.first().isEmpty())
+    }
+
+    @Test
+    fun `torrent association preserves release identity and exact paths per episode`() = runRepositoryTest {
+        dao.upsert(subject(1, currentTimeMillis()))
+        database.episodeCollection().upsert(listOf(episode(1, 11, 1, 0), episode(1, 12, 2, 0)))
+        val entry = video("release").copy(kind = MediaSourceEntryKind.TORRENT)
+        val original = media(entry.reference).copy(
+            download = ResourceLocation.MagnetLink("magnet:?xt=urn:btih:abcdef"), kind = MediaSourceKind.BitTorrent,
+        )
+        val library = ResourceLibraryRepository(database.resourceLibraryDao())
+        var request: MediaFetchRequest? = null
+        val useCase = AssociateResourcesUseCase(repository, library) {
+            mapOf("source" to factory { _, query -> request = query; original })
+        }
+        useCase(listOf(
+            ResourceEpisodeSelection(entry, 1, 11, "Season 1/video.mkv"),
+            ResourceEpisodeSelection(entry, 1, 12, "Season 2/video.mkv"),
+        ))
+        val candidate = library.candidates("source", request!!).single()
+        assertEquals(original.mediaId, candidate.mediaId)
+        assertEquals(original.download, candidate.download)
+        assertEquals(mapOf("11" to "Season 1/video.mkv", "12" to "Season 2/video.mkv"), candidate.association?.selectedFilePaths)
+    }
+
+    @Test
+    fun `association rejects file splitting and unselected torrent before loading metadata`() = runRepositoryTest {
+        val library = ResourceLibraryRepository(database.resourceLibraryDao())
+        val useCase = AssociateResourcesUseCase(repository, library) { error("Validation must run first") }
+        assertFailsWith<IllegalArgumentException> {
+            useCase(listOf(ResourceEpisodeSelection(video("a.mkv"), 1, 11), ResourceEpisodeSelection(video("a.mkv"), 1, 12)))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            useCase(listOf(ResourceEpisodeSelection(video("release").copy(kind = MediaSourceEntryKind.TORRENT), 1, 11)))
+        }
+        assertTrue(library.bindings.first().isEmpty())
+    }
 
     // region invalidateCache
 
