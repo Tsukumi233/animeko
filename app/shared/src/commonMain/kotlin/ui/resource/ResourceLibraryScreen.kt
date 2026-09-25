@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.VideoFile
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import me.him188.ani.app.domain.mediasource.fileservice.FileServiceProtocol
 import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeTarget
 import me.him188.ani.app.domain.mediasource.library.ResourceFileIdentity
 import me.him188.ani.app.domain.mediasource.library.ResourcePreviewInput
+import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSource
 import me.him188.ani.app.ui.lang.*
 import me.him188.ani.datasources.api.source.MediaSourceBrowser
 import me.him188.ani.datasources.api.source.MediaSourceEntryKind
@@ -51,12 +53,39 @@ fun ResourceLibraryScreen(
     var connection by remember { mutableStateOf<FileServiceProtocol?>(null) }
     var pikpakAccount by remember { mutableStateOf(false) }
     val localName = stringResource(Lang.resource_local_files)
-    LaunchedEffect(viewModel) { viewModel.importInitialFiles(localName) }
+    LaunchedEffect(viewModel) {
+        viewModel.refreshStaleRoots()
+        viewModel.importInitialFiles(localName)
+    }
     val pickers = rememberResourceFilePickers(
         onFiles = { viewModel.addLocal(it, false, localName) },
         onDirectory = { viewModel.addLocal(listOf(it), true, localName) },
         onError = { viewModel.error.value = it },
     )
+    var relocationTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var relocationFileCountError by remember { mutableStateOf(false) }
+    val relocationPickers = rememberResourceFilePickers(
+        onFiles = { files ->
+            relocationTarget?.let { (id, sourceId) ->
+                if (files.size == 1) viewModel.relocation.file(id, sourceId, files.single())
+                else if (files.isNotEmpty()) relocationFileCountError = true
+            }
+            relocationTarget = null
+        },
+        onDirectory = { uri ->
+            relocationTarget?.let { (id, sourceId) -> viewModel.relocation.directory(id, sourceId, uri) }
+            relocationTarget = null
+        },
+        onError = { relocationTarget = null; viewModel.error.value = it },
+    )
+    val relocateFile: (String, String) -> Unit = { id, sourceId ->
+        relocationTarget = id to sourceId
+        relocationPickers.files()
+    }
+    val relocateDirectory: (String, String) -> Unit = { id, sourceId ->
+        relocationTarget = id to sourceId
+        relocationPickers.directory()
+    }
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val selected by viewModel.selected.collectAsStateWithLifecycle()
@@ -102,13 +131,13 @@ fun ResourceLibraryScreen(
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (page) {
-                0 -> MyResources(viewModel, onPlay)
+                0 -> MyResources(viewModel, onPlay, relocateFile)
                 1 -> {
                     val state by viewModel.browser.state.collectAsStateWithLifecycle()
                     if (state.sourceId == null) {
                         val sources by viewModel.sources.collectAsStateWithLifecycle()
                         LazyColumn(Modifier.fillMaxSize()) {
-                            item { ResourceScanRoots(viewModel) }
+                            item { ResourceScanRoots(viewModel, relocateDirectory) }
                             if (sources.isEmpty()) item { ResourceEmptyText(stringResource(Lang.resource_no_sources)) }
                             items(sources, key = { it.instanceId }) { instance ->
                                 val browser = instance.source as? MediaSourceBrowser
@@ -128,7 +157,7 @@ fun ResourceLibraryScreen(
                         onRefresh = viewModel.browser::refresh, onMore = viewModel.browser::more,
                         onEnter = { viewModel.browser.enter(it.entry) }, onToggle = viewModel::toggle,
                         onScan = viewModel::scanCurrent, canScan = !busy,
-                        scanControls = { ResourceCurrentScanControls(viewModel) },
+                        scanControls = { ResourceCurrentScanControls(viewModel, relocateDirectory) },
                     )
                 }
                 2 -> downloads()
@@ -137,6 +166,14 @@ fun ResourceLibraryScreen(
     }
     ResourceScanRulesDialog(viewModel)
     ResourceAssociationDialog(viewModel)
+    val relocationState by viewModel.relocation.state.collectAsStateWithLifecycle()
+    ResourceRelocationDialog(relocationState, viewModel.relocation::confirm, viewModel.relocation::dismiss)
+    if (relocationFileCountError) AlertDialog(
+        onDismissRequest = { relocationFileCountError = false },
+        title = { Text(stringResource(Lang.resource_relocate)) },
+        text = { Text(stringResource(Lang.resource_relocate_single_file)) },
+        confirmButton = { TextButton({ relocationFileCountError = false }) { Text(stringResource(Lang.resource_confirm)) } },
+    )
     if (pikpakAccount) {
         val config by viewModel.pikpakConfig.collectAsStateWithLifecycle()
         var username by remember(config.username) { mutableStateOf(config.username) }
@@ -172,7 +209,8 @@ fun ResourceLibraryScreen(
 }
 
 @Composable
-private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, String) -> Unit) {
+private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, String) -> Unit,
+    onRelocate: (String, String) -> Unit) {
     val resources by viewModel.resources.collectAsStateWithLifecycle()
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
     val sources by viewModel.sources.collectAsStateWithLifecycle()
@@ -199,10 +237,12 @@ private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, 
                     missing = resource?.available == false,
                     onClick = { onPlay(subjectId, binding.episodeId, binding.resourceId) },
                     trailingContent = {
-                        Row {
-                            TextButton({ viewModel.selectIndexed(binding.resourceId, binding.selectedFilePath, ResourceEpisodeTarget(binding.subjectId, binding.episodeId)) }) { Text(stringResource(Lang.resource_edit)) }
-                            TextButton({ viewModel.removeBinding(binding.resourceId, subjectId, binding.episodeId) }) { Text(stringResource(Lang.resource_unlink)) }
-                        }
+                        ResourceEntryActions(
+                            onEdit = { viewModel.selectIndexed(binding.resourceId, binding.selectedFilePath, ResourceEpisodeTarget(binding.subjectId, binding.episodeId)) },
+                            onRelocate = if (source is LocalFileMediaSource) ({ onRelocate(binding.resourceId, binding.sourceId) }) else null,
+                            removeLabel = stringResource(Lang.resource_unlink),
+                            onRemove = { viewModel.removeBinding(binding.resourceId, subjectId, binding.episodeId) },
+                        )
                     },
                 )
             }
@@ -228,8 +268,26 @@ private fun MyResources(viewModel: ResourceLibraryViewModel, onPlay: (Int, Int, 
                 filePath = row.filePath,
                 missing = !resource.available,
                 onClick = { viewModel.selectIndexed(resource.id, row.filePath) },
-                trailingContent = if (row.filePath == null) ({ TextButton({ viewModel.removeResource(resource.id) }) { Text(stringResource(Lang.resource_remove_index)) } }) else null,
+                trailingContent = if (row.filePath == null) ({ ResourceEntryActions(
+                    onRelocate = if (source is LocalFileMediaSource) ({ onRelocate(resource.id, resource.sourceId) }) else null,
+                    removeLabel = stringResource(Lang.resource_remove_index),
+                    onRemove = { viewModel.removeResource(resource.id) },
+                ) }) else null,
             )
+        }
+    }
+}
+
+@Composable
+internal fun ResourceEntryActions(onEdit: (() -> Unit)? = null, onRelocate: (() -> Unit)? = null,
+    removeLabel: String, onRemove: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton({ expanded = true }) { Icon(Icons.Rounded.MoreVert, stringResource(Lang.cache_management_more_actions)) }
+        DropdownMenu(expanded, { expanded = false }) {
+            if (onEdit != null) DropdownMenuItem({ Text(stringResource(Lang.resource_edit)) }, { expanded = false; onEdit() })
+            if (onRelocate != null) DropdownMenuItem({ Text(stringResource(Lang.resource_relocate)) }, { expanded = false; onRelocate() })
+            DropdownMenuItem({ Text(removeLabel) }, { expanded = false; onRemove() })
         }
     }
 }

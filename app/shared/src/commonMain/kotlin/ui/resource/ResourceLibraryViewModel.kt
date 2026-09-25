@@ -3,11 +3,9 @@ package me.him188.ani.app.ui.resource
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -50,10 +48,13 @@ import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeSelection
 import me.him188.ani.app.domain.mediasource.library.ResourceEpisodeTarget
 import me.him188.ani.app.domain.mediasource.library.ResourceFileIdentity
 import me.him188.ani.app.domain.mediasource.library.ResourcePreviewInput
+import me.him188.ani.app.domain.mediasource.library.StoredScanMatchSuggestions
 import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSource
 import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSourceArguments
 import me.him188.ani.app.domain.mediasource.local.LocalResourceAccess
-import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanner
+import me.him188.ani.app.domain.mediasource.local.LocalResourceRelocationController
+import me.him188.ani.app.domain.mediasource.local.LocalResourceRelocationUseCase
+import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanCoordinator
 import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSource
 import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSourceArguments
 import me.him188.ani.app.domain.mediasource.torrent.TorrentResourceBrowser
@@ -90,7 +91,7 @@ class ResourceLibraryViewModel(
     private val search: SubjectSearchRepository,
     private val settings: SettingsRepository,
     private val localAccess: LocalResourceAccess,
-    private val scanner: ResourceLibraryScanner,
+    private val scanCoordinator: ResourceLibraryScanCoordinator,
     private val associate: AssociateResourcesUseCase,
     torrentBrowser: TorrentResourceBrowser,
     matchingRules: ConfirmScanMatchingRulesUseCase,
@@ -138,7 +139,17 @@ class ResourceLibraryViewModel(
     }.cachedIn(backgroundScope)
     val scanRules = ResourceScanRuleController(backgroundScope,
         { subjects.librarySubjectCollectionFlow(it).first() }, matchingRules::confirm, matchingRules::remove)
-    private val scanJobs = MutableStateFlow<Map<String, Job>>(emptyMap())
+    val activeScanRoots = scanCoordinator.activeRootIds
+    val relocation = LocalResourceRelocationController.create(
+        backgroundScope, LocalResourceRelocationUseCase(library, localAccess),
+        resolveSource = { sourceId ->
+            manager.allInstances.first().singleOrNull { it.mediaSourceId == sourceId }?.source as? LocalFileMediaSource
+                ?: error("Local source is unavailable")
+        },
+        onCommitted = { browser.close(); selected.value = emptyList() },
+    )
+
+    fun refreshStaleRoots() { scanCoordinator.refreshStaleOnForeground() }
     private val sourceWrites = Mutex()
     private val preview = ResourceAssociationPreviewBuilder()
     private var subjectLoad: Job? = null
@@ -316,7 +327,13 @@ class ResourceLibraryViewModel(
             val groups = allEntries.map { listOf(it) }
             for (entries in groups) {
                 val isDirectory = entries.first().isDirectory
-                val id = if (isDirectory) Uuid.randomString() else "user-local-files"
+                val localSourceIds = instances.flow.first().filter { it.factoryId == LocalFileMediaSource.FactoryId }
+                    .map { it.mediaSourceId }.toSet()
+                val existingRoot = if (isDirectory) library.dao.scanRoots().first().firstOrNull {
+                    it.sourceId in localSourceIds &&
+                        Json.decodeFromString<MediaResourceRef>(it.referenceJson).locator == entries.single().uri
+                } else null
+                val id = if (isDirectory) existingRoot?.sourceId ?: Uuid.randomString() else "user-local-files"
                 val displayName = if (isDirectory) entries.single().name else name
                 val args = LocalFileMediaSourceArguments(displayName)
                 if (instances.flow.first().none { it.mediaSourceId == id }) {
@@ -336,17 +353,20 @@ class ResourceLibraryViewModel(
                         picked += ResourcePreviewInput(item)
                     }
                     else if (isDirectory) {
-                        val job = currentCoroutineContext()[Job]!!
-                        scanJobs.update { it + (root.id to job) }
-                        try { scanner.scan(root, source) } finally {
-                            val job = currentCoroutineContext()[Job]
-                            scanJobs.update { if (it[root.id] === job) it - root.id else it }
-                        }
+                        manager.allInstances.first { list -> list.any { it.mediaSourceId == id } }
+                        scanCoordinator.request(root.id)
                     }
                 }
                 if (isDirectory) {
                     picked += library.dao.resourcesForSource(id).first().filter { it.available }.map { resource ->
-                        ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name, MediaSourceEntryKind.VIDEO, resource.size, resource.modifiedTimeMillis))
+                        val parent = library.dao.findSuggestion(resource.id)?.let { suggestion ->
+                            Json.decodeFromString<StoredScanMatchSuggestions>(suggestion.suggestionJson)
+                                .rows.firstOrNull { it.selectedFilePath == null }?.parentReference
+                        }
+                        val folder = parent?.let { localAccess.stat(it.locator).name } ?: displayName
+                        ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name,
+                            MediaSourceEntryKind.VIDEO, resource.size, resource.modifiedTimeMillis, parent = parent),
+                            folderName = folder, parentReference = parent)
                     }
                 }
                 manager.allInstances.first { list -> list.any { it.mediaSourceId == id } }
@@ -366,6 +386,14 @@ class ResourceLibraryViewModel(
             withContext(NonCancellable) { library.dao.removeCredentials(id) }
             throw e
         }
+        openSource(id)
+    }
+
+    private suspend fun openSource(id: String) {
+        val instance = manager.allInstances.first { entries -> entries.any { it.mediaSourceId == id } }
+            .single { it.mediaSourceId == id }
+        browser.open(id, instance.source.info.displayName, instance.source as MediaSourceBrowser)
+        showBrowser.value = true
     }
 
     fun editFileService(instanceId: String) = action {
@@ -429,6 +457,7 @@ class ResourceLibraryViewModel(
                 instances.add(MediaSourceSave(id, id, PikPakMediaSource.FactoryId, true,
                     MediaSourceConfig(serializedArguments = Json.encodeToJsonElement(PikPakMediaSourceArguments()))))
             }
+            openSource(instances.flow.first().first { it.factoryId == PikPakMediaSource.FactoryId }.mediaSourceId)
         }
     }
 
@@ -453,33 +482,19 @@ class ResourceLibraryViewModel(
     }
 
     fun scanRoot(root: LibraryScanRootEntity) {
-        val job = backgroundScope.launch(start = CoroutineStart.LAZY) {
+        backgroundScope.launch {
             try {
-                val source = sources.value.find { it.mediaSourceId == root.sourceId }?.source as? MediaSourceBrowser
-                    ?: error("Source does not support browsing")
-                scanner.scan(root, source)
+                scanCoordinator.request(root.id)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error.value = e }
-            finally {
-                val runningJob = currentCoroutineContext()[Job]
-                scanJobs.update { if (it[root.id] === runningJob) it - root.id else it }
-            }
         }
-        while (true) {
-            val current = scanJobs.value
-            if (current[root.id]?.let { !it.isCompleted && !it.isCancelled } == true) { job.cancel(); return }
-            if (scanJobs.compareAndSet(current, current + (root.id to job))) break
-        }
-        job.start()
     }
 
     fun cancelScan(rootId: String) {
-        val token = roots.value.find { it.id == rootId }?.activeScanToken
-        scanJobs.value[rootId]?.cancel()
-        if (token != null) backgroundScope.launch { library.dao.failScan(rootId, token, "扫描已取消") }
+        backgroundScope.launch { scanCoordinator.cancel(rootId) }
     }
     fun removeScanRoot(rootId: String) = action {
-        scanJobs.value[rootId]?.cancel()
+        scanCoordinator.cancel(rootId)
         library.dao.removeScanRoot(rootId)
     }
 

@@ -14,4 +14,5 @@
     <string name="resource_relocate_changed">预览后资源记录或文件发生变化，请重新选择目标位置。</string>
     <string name="resource_relocate_old_location">原位置</string>
     <string name="resource_relocate_new_location">所选位置</string>
+    <string name="resource_relocate_single_file">请选择一个用于替换的视频文件。</string>
 </resources>

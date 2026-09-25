@@ -15,27 +15,35 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.serialization.json.Json
 import me.him188.ani.app.data.models.episode.displayName
 import me.him188.ani.app.data.persistent.database.dao.LibraryScanRootEntity
+import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSource
 import me.him188.ani.app.ui.lang.*
 import me.him188.ani.datasources.api.source.MediaResourceRef
 import me.him188.ani.datasources.api.source.MediaSourceEntryKind
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-internal fun ResourceCurrentScanControls(viewModel: ResourceLibraryViewModel) {
+internal fun ResourceCurrentScanControls(viewModel: ResourceLibraryViewModel, onRelocate: (String, String) -> Unit = { _, _ -> }) {
     val browser by viewModel.browser.state.collectAsStateWithLifecycle()
     val roots by viewModel.roots.collectAsStateWithLifecycle()
+    val active by viewModel.activeScanRoots.collectAsStateWithLifecycle()
     val parent = browser.path.lastOrNull()?.takeIf { it.kind == MediaSourceEntryKind.DIRECTORY } ?: return
     val root = roots.find { Json.decodeFromString<MediaResourceRef>(it.referenceJson) == parent.reference }
     Column(Modifier.padding(horizontal = 16.dp)) {
-        if (root != null) ResourceScanRootStatus(root, viewModel::scanRoot, viewModel::cancelScan)
+        if (root != null) ResourceScanRootStatus(root, viewModel::scanRoot, viewModel::cancelScan, root.id in active)
         TextButton(viewModel::configureCurrentScanRules) { Text(stringResource(Lang.resource_scan_rules)) }
+        val sources by viewModel.sources.collectAsStateWithLifecycle()
+        if (root != null && sources.any { it.mediaSourceId == root.sourceId && it.source is LocalFileMediaSource }) {
+            TextButton({ onRelocate(root.id, root.sourceId) }, enabled = root.id !in active) { Text(stringResource(Lang.resource_relocate)) }
+        }
     }
 }
 
 @Composable
-internal fun ResourceScanRoots(viewModel: ResourceLibraryViewModel) {
+internal fun ResourceScanRoots(viewModel: ResourceLibraryViewModel, onRelocate: (String, String) -> Unit = { _, _ -> }) {
     val roots by viewModel.roots.collectAsStateWithLifecycle()
+    val active by viewModel.activeScanRoots.collectAsStateWithLifecycle()
     val resources by viewModel.resources.collectAsStateWithLifecycle()
+    val sources by viewModel.sources.collectAsStateWithLifecycle()
     val folders = roots.filterNot { root -> resources.any { resource ->
         resource.entryKind == MediaSourceEntryKind.VIDEO.name && resource.sourceId == root.sourceId &&
                 viewModel.library.decodeReference(resource) == Json.decodeFromString<MediaResourceRef>(root.referenceJson)
@@ -45,9 +53,12 @@ internal fun ResourceScanRoots(viewModel: ResourceLibraryViewModel) {
         Text(stringResource(Lang.resource_scan_roots), style = MaterialTheme.typography.titleMedium)
         folders.forEach { root ->
             Text(root.name, style = MaterialTheme.typography.titleSmall)
-            ResourceScanRootStatus(root, viewModel::scanRoot, viewModel::cancelScan)
+            ResourceScanRootStatus(root, viewModel::scanRoot, viewModel::cancelScan, root.id in active)
             Row {
                 TextButton({ viewModel.configureScanRules(root) }) { Text(stringResource(Lang.resource_scan_rules)) }
+                if (sources.any { it.mediaSourceId == root.sourceId && it.source is LocalFileMediaSource }) {
+                    TextButton({ onRelocate(root.id, root.sourceId) }, enabled = root.id !in active) { Text(stringResource(Lang.resource_relocate)) }
+                }
                 TextButton({ viewModel.removeScanRoot(root.id) }) { Text(stringResource(Lang.resource_scan_forget)) }
             }
         }
@@ -56,9 +67,10 @@ internal fun ResourceScanRoots(viewModel: ResourceLibraryViewModel) {
 }
 
 @Composable
-internal fun ResourceScanRootStatus(root: LibraryScanRootEntity, onScan: (LibraryScanRootEntity) -> Unit, onCancel: (String) -> Unit) {
+internal fun ResourceScanRootStatus(root: LibraryScanRootEntity, onScan: (LibraryScanRootEntity) -> Unit, onCancel: (String) -> Unit,
+    active: Boolean = root.activeScanToken != null) {
     Column {
-        if (root.activeScanToken != null) {
+        if (active) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             TextButton({ onCancel(root.id) }) { Text(stringResource(Lang.resource_scan_cancel)) }
         } else TextButton({ onScan(root) }) { Text(stringResource(if (root.error != null) Lang.resource_scan_retry else Lang.resource_scan_directory)) }
