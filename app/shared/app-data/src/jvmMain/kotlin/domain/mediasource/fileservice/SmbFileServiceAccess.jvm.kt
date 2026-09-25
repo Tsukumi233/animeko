@@ -14,6 +14,7 @@ import com.hierynomus.mssmb2.SMB2ShareAccess
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.SmbConfig
 import com.hierynomus.smbj.auth.AuthenticationContext
+import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.share.DiskShare
 import com.hierynomus.smbj.share.File
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,7 @@ private class SmbjFileServiceAccess(
                 AuthenticationContext(credentials.username, credentials.password.toCharArray(), credentials.domain)
             val share = connection.authenticate(auth).connectShare(shareName) as? DiskShare
                 ?: throw FileServiceAccessException("The SMB share is not a disk share")
-            val result = SmbConnection(client, share) { connections.remove(it) }
+            val result = SmbConnection(client, connection, share) { connections.remove(it) }
             connections.add(result)
             if (closed.get()) {
                 result.close()
@@ -129,13 +130,16 @@ private class SmbjFileServiceAccess(
 
 private class SmbConnection(
     private val client: SMBClient,
+    private val connection: Connection,
     val share: DiskShare,
     private val onClosed: (SmbConnection) -> Unit,
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
     override fun close() {
         if (closed.compareAndSet(false, true)) {
-            try { client.close() } finally { onClosed(this) }
+            try { connection.close(true) } finally {
+                try { client.close() } finally { onClosed(this) }
+            }
         }
     }
 }
@@ -174,7 +178,8 @@ private class SmbOpenFile(private val connection: SmbConnection, private val fil
 
     override fun close() {
         if (closed.compareAndSet(false, true)) {
-            try { file.close() } finally { connection.close() }
+            // Each input owns its connection. Disconnect releases server handles and interrupts reads.
+            connection.close()
         }
     }
 }

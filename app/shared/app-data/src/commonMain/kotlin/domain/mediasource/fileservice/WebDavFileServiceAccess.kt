@@ -5,6 +5,7 @@
 package me.him188.ani.app.domain.mediasource.fileservice
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -14,6 +15,7 @@ import io.ktor.http.URLBuilder
 import io.ktor.http.Url
 import io.ktor.http.decodeURLPart
 import io.ktor.http.encodeURLPathPart
+import io.ktor.http.encodedPath
 import io.ktor.util.encodeBase64
 import me.him188.ani.utils.xml.Element
 import me.him188.ani.utils.xml.Xml
@@ -46,16 +48,18 @@ class WebDavFileServiceAccess(endpoint: String, httpClient: HttpClient) : FileSe
             ?: throw FileServiceAccessException("Requested WebDAV resource was not returned")
 
     private suspend fun properties(path: String, credentials: FileServiceCredentials, depth: Int): List<FileServiceEntry> {
-        val target = url(path).let { if (depth == 1) "$it/" else it }
+        val target = url(path).let { if (depth == 1) "${it.trimEnd('/')}/" else it }
         val response = http.request(target) {
+            expectSuccess = false
             method = HttpMethod("PROPFIND")
-            headers(credentials).forEach { (key, value) -> header(key, value) }
+            this@WebDavFileServiceAccess.headers(credentials).forEach { (key, value) -> header(key, value) }
             header("Depth", depth.toString())
             header("Content-Type", "application/xml; charset=utf-8")
             setBody("""<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><d:getetag/><d:getcontenttype/></d:prop></d:propfind>""")
         }
         if (response.status.value != 207) throw FileServiceAccessException("WebDAV returned HTTP ${response.status.value}")
         val document = Xml.parse(response.bodyAsText())
+        if (document.elementsNamed("multistatus").isEmpty()) throw FileServiceAccessException("Invalid WebDAV multistatus response")
         return document.elementsNamed("response").mapNotNull { item ->
             val href = item.elementsNamed("href").firstOrNull()?.text() ?: return@mapNotNull null
             val relative = relativeHref(href, target)
@@ -80,6 +84,7 @@ class WebDavFileServiceAccess(endpoint: String, httpClient: HttpClient) : FileSe
     }
 
     private fun relativeHref(href: String, requestUrl: String): String {
+        require('?' !in href && '#' !in href) { "WebDAV resource href must be a path" }
         val candidate = when {
             href.startsWith("http://") || href.startsWith("https://") -> Url(href)
             href.startsWith('/') -> Url(URLBuilder(root).apply { encodedPath = href }.buildString())
@@ -96,7 +101,7 @@ class WebDavFileServiceAccess(endpoint: String, httpClient: HttpClient) : FileSe
 }
 
 private fun pathSegments(path: String): List<String> = path.trim('/').takeIf { it.isNotEmpty() }?.split('/')?.map {
-    it.decodeURLPart().also { decoded -> require(decoded != "." && decoded != ".." && '/' !in decoded && '\\' !in decoded && '\u0000' !in decoded) }
+    it.decodeURLPart().also { decoded -> require(decoded.isNotEmpty() && decoded != "." && decoded != ".." && '/' !in decoded && '\\' !in decoded && '\u0000' !in decoded) }
 }.orEmpty()
 
 private fun Element.elementsNamed(name: String): List<Element> = select("*").filter { it.tagName().substringAfter(':').equals(name, true) }

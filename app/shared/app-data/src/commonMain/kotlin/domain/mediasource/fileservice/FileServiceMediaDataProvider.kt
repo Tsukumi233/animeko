@@ -7,6 +7,8 @@ package me.him188.ani.app.domain.mediasource.fileservice
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import me.him188.ani.app.domain.media.player.data.MediaDataProvider
 import org.openani.mediamp.io.SeekableInput
 import org.openani.mediamp.source.MediaExtraFiles
@@ -30,7 +32,13 @@ internal class FileServiceMediaDataProvider(
 
         override suspend fun createInput(coroutineContext: CoroutineContext): SeekableInput {
             val file = openFile()
-            val input = file.asSeekableInput()
+            val input = try {
+                currentCoroutineContext().ensureActive()
+                file.asSeekableInput()
+            } catch (e: Throwable) {
+                file.close()
+                throw e
+            }
             synchronized(lock) {
                 if (closed) {
                     input.close()

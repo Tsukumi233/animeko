@@ -4,6 +4,7 @@
  */
 package me.him188.ani.app.domain.mediasource.fileservice
 
+import io.ktor.http.Url
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.io.bytestring.encodeToByteString
 import kotlinx.serialization.Serializable
@@ -71,7 +72,25 @@ data class FileServiceArguments(
     val root: String = "",
     val port: Int = 445,
     override val tier: MediaSourceTier = MediaSourceTier.Fallback,
-) : MediaSourceArguments
+) : MediaSourceArguments {
+    init {
+        require(endpoint.isNotBlank())
+        when (protocol) {
+            FileServiceProtocol.WEBDAV -> {
+                val url = Url(endpoint)
+                require(url.protocol.name in setOf("http", "https") && url.host.isNotEmpty())
+                require(url.user.isNullOrEmpty() && url.password.isNullOrEmpty() && url.parameters.isEmpty() && url.fragment.isEmpty()) {
+                    "Credentials must be stored separately from the WebDAV address"
+                }
+            }
+            FileServiceProtocol.SMB -> {
+                require(endpoint.none { it in "/\\@?#\u0000" } && port in 1..65535)
+                require(share.isNotBlank() && share.none { it in "/\\\u0000" })
+                checkedRelativePath(root)
+            }
+        }
+    }
+}
 
 object FileServiceMediaSourceCodec : DefaultMediaSourceCodec<FileServiceArguments>(
     FileServiceMediaSource.FactoryId, FileServiceArguments::class, 1, FileServiceArguments.serializer(),
