@@ -13,6 +13,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.HttpStatement
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.HttpHeaders
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
 import kotlinx.collections.immutable.mutate
@@ -198,6 +199,7 @@ open class KtorHttpDownloader(
                 relativeSegmentCacheDir = segmentCacheDir,
                 mediaType = mediaType,
                 requestHeaders = options.headers,
+                contentIdentity = options.contentIdentity,
             )
             _downloadStatesFlow.update {
                 put(downloadId, DownloadEntry(job = null, state = initialState))
@@ -275,26 +277,31 @@ open class KtorHttpDownloader(
      * Returns false if creation fails (the state will be marked FAILED), otherwise true.
      */
     override suspend fun resume(downloadId: DownloadId): Boolean {
-        val st = getState(downloadId) ?: return false
-        if (st.status != PAUSED && st.status != FAILED) {
-            if (st.status != COMPLETED) {
-                logger.info { "Cannot resume $downloadId because status=${st.status}" }
+        val initial = getState(downloadId) ?: return false
+        if (initial.status != PAUSED && initial.status != FAILED) {
+            if (initial.status != COMPLETED) {
+                logger.info { "Cannot resume $downloadId because status=${initial.status}" }
             }
             return false
         }
 
-        // Check if there's already an active job
-        val alreadyActive = stateMutex.withLock {
-            val existingEntry = _downloadStatesFlow.value[downloadId]
-            existingEntry?.job?.isActive == true
-        }
-        if (alreadyActive) {
-            logger.info { "Attempting to resume $downloadId but there's already an active job." }
+        val previousJob = stateMutex.withLock { _downloadStatesFlow.value[downloadId]?.job }
+        if (previousJob?.isActive == true) {
             emitProgress(downloadId)
             return true
         }
+        // A cancelled writer must finish closing its sink before another worker uses the same file.
+        previousJob?.join()
+        val st = stateMutex.withLock {
+            val entry = _downloadStatesFlow.value[downloadId] ?: return false
+            if (entry.state.status !in listOf(PAUSED, FAILED)) return false
+            val claimed = entry.state.copy(status = INITIALIZING)
+            _downloadStatesFlow.update { put(downloadId, entry.copy(state = claimed)) }
+            onUpdateDownloadState(downloadId, claimed)
+            claimed
+        }
 
-        logger.info { "Resuming $downloadId with status=${st.status}" }
+        logger.info { "Resuming $downloadId with status=${initial.status}" }
 
         // If we have no segments, it means we failed during segment creation
         if (st.segments.isEmpty()) {
@@ -349,6 +356,79 @@ open class KtorHttpDownloader(
         return true
     }
 
+    override suspend fun refreshRequest(
+        downloadId: DownloadId,
+        url: String,
+        headers: Map<String, String>,
+        contentIdentity: String?,
+    ): Boolean {
+        val snapshot = stateMutex.withLock {
+            val entry = _downloadStatesFlow.value[downloadId] ?: return false
+            if (entry.state.status !in listOf(PAUSED, FAILED) || entry.job?.isCompleted == false) return false
+            entry.state
+        }
+        val hasDownloaded = snapshot.segments.any { it.isDownloaded }
+        require(!hasDownloaded || (!contentIdentity.isNullOrBlank() && contentIdentity == snapshot.contentIdentity)) {
+            "Content identity changed or is unavailable; cached segments cannot be reused"
+        }
+        val options = DownloadOptions(headers = headers, contentIdentity = contentIdentity)
+        val playlist = if (snapshot.mediaType == MediaType.M3U8) resolveM3u8MediaPlaylist(url, options) else null
+        val segments = if (playlist != null) {
+            require(playlist.playlist.isEndlist) { "Refreshing live HLS playlists is not supported" }
+            if (hasDownloaded) {
+                val old = m3u8Parser.parseResolvedMediaPlaylist(
+                    readTextFromFile(baseSaveDir.resolve(snapshot.relativeSegmentCacheDir).resolve(UPSTREAM_PLAYLIST_FILE_NAME)),
+                    snapshot.url,
+                ).playlist
+                require(old.isEndlist && old.version == playlist.playlist.version &&
+                    old.tags == playlist.playlist.tags &&
+                    old.segments.map { it.byteRange } == playlist.playlist.segments.map { it.byteRange }
+                ) { "HLS playlist layout changed" }
+            }
+            playlist.playlist.toSegments { Path(snapshot.relativeSegmentCacheDir).resolve(it).toString() }
+        } else {
+            val probe = probeRangeSupport(url, options) ?: error("Unable to validate refreshed download request")
+            val expectedLength = snapshot.segments.sumOf { it.byteSize.coerceAtLeast(0) }
+            if (hasDownloaded) {
+                require(probe.first == expectedLength) { "Content length changed" }
+                require(snapshot.segments.none { it.rangeStart != null } || probe.second) {
+                    "Refreshed request does not support byte ranges"
+                }
+            }
+            snapshot.segments.map { it.copy(url = url) }
+        }
+        require(!hasDownloaded || (snapshot.segments.size == segments.size &&
+            snapshot.segments.zip(segments).all { (old, fresh) ->
+                old.index == fresh.index && old.rangeStart == fresh.rangeStart && old.rangeEnd == fresh.rangeEnd &&
+                    old.durationSeconds == fresh.durationSeconds && old.isDiscontinuity == fresh.isDiscontinuity &&
+                    old.encryption?.method == fresh.encryption?.method && old.encryption?.iv == fresh.encryption?.iv
+            })) { "Segment layout changed; cached segments cannot be reused" }
+        val refreshed = snapshot.copy(
+            url = url,
+            requestHeaders = headers,
+            contentIdentity = contentIdentity,
+            segments = if (hasDownloaded) segments.zip(snapshot.segments).map { (fresh, old) ->
+                fresh.copy(isDownloaded = old.isDownloaded, byteSize = old.byteSize, relativeTempFilePath = old.relativeTempFilePath)
+            } else if (playlist == null) emptyList() else segments,
+            totalSegments = if (!hasDownloaded && playlist == null) 0 else segments.size,
+            error = null,
+        )
+        stateMutex.withLock {
+            val entry = _downloadStatesFlow.value[downloadId] ?: return false
+            if (entry.state != snapshot || entry.job?.isCompleted == false) return false
+            if (playlist != null) {
+                val cacheDir = baseSaveDir.resolve(snapshot.relativeSegmentCacheDir)
+                snapshot.buildHlsKeyRelativePaths().values.forEach { deleteIfExists(cacheDir.resolve(it)) }
+                persistResolvedMediaPlaylist(cacheDir, playlist)
+            }
+            _downloadStatesFlow.update { put(downloadId, entry.copy(state = refreshed)) }
+            onUpdateDownloadState(downloadId, refreshed)
+        }
+        clearSegmentFailure(downloadId)
+        emitProgress(downloadId)
+        return true
+    }
+
     override suspend fun getActiveDownloadIds(): List<DownloadId> {
         return stateMutex.withLock {
             _downloadStatesFlow.value.values
@@ -381,7 +461,7 @@ open class KtorHttpDownloader(
                 put(
                     downloadId,
                     entry.copy(
-                        job = null,
+                        job = job,
                         state = oldState.copy(status = PAUSED),
                     ),
                 )
@@ -405,7 +485,7 @@ open class KtorHttpDownloader(
                             logger.info { "Pausing download $id" }
                             job.cancel()
                             map[id] = entry.copy(
-                                job = null,
+                                job = job,
                                 state = entry.state.copy(status = PAUSED),
                             )
                             paused.add(id)
@@ -861,6 +941,8 @@ open class KtorHttpDownloader(
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Throwable) {
             null
         }
@@ -886,6 +968,15 @@ open class KtorHttpDownloader(
             // ByteArray. 当服务器不支持 range 请求时 segment 没有大小上限, 一个几百 MB 的视频
             // 会直接撑爆堆内存.
             statement.execute { response ->
+                require(response.status.value in 200..299) { "Segment request failed: ${response.status.value}" }
+                val start = segmentInfo.rangeStart
+                val end = segmentInfo.rangeEnd
+                if (start != null && end != null) {
+                    require(response.status.value == 206) { "Server ignored the requested byte range" }
+                    require(response.headers[HttpHeaders.ContentRange]?.startsWith("bytes $start-$end/") == true) {
+                        "Unexpected Content-Range"
+                    }
+                }
                 val segmentPath = baseSaveDir.resolve(segmentInfo.relativeTempFilePath)
                 withContext(ioDispatcher) {
                     fileSystem.createDirectories(
@@ -895,6 +986,9 @@ open class KtorHttpDownloader(
 
                 val channel = response.bodyAsChannel()
                 val byteSize = copyChannelToFile(channel, segmentPath)
+                if (start != null && end != null) {
+                    require(byteSize == end - start + 1) { "Incomplete byte range response" }
+                }
                 byteSize.also {
                     logger.info { "Segment index=${segmentInfo.index} downloaded, size=$it" }
                 }

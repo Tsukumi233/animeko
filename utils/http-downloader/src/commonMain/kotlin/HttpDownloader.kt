@@ -81,6 +81,19 @@ interface HttpDownloader : AutoCloseable {
     suspend fun resume(downloadId: DownloadId): Boolean
 
     /**
+     * Replaces access credentials on a paused or failed task without changing its ID.
+     * Completed segments require the same immutable content version supplied at creation.
+     * Returns false if absent, running, or terminal. Identity/layout mismatch throws and leaves
+     * the saved request unchanged. Call [resume] after successful replacement.
+     */
+    suspend fun refreshRequest(
+        downloadId: DownloadId,
+        url: String,
+        headers: Map<String, String>,
+        contentIdentity: String?,
+    ): Boolean = throw UnsupportedOperationException("Request refresh is not supported")
+
+    /**
      * Gets all currently active download IDs.
      */
     suspend fun getActiveDownloadIds(): List<DownloadId>
@@ -214,6 +227,8 @@ data class DownloadState(
     @field:TypeConverters(StringMapConverter::class)
     val requestHeaders: Map<String, String>,
     val mediaType: MediaType,
+    @ColumnInfo(defaultValue = "NULL")
+    val contentIdentity: String? = null,
 )
 
 @Serializable
@@ -266,4 +281,6 @@ data class DownloadOptions(
     val headers: Map<String, String> = emptyMap(),
     val maxRetriesPerSegment: Int = 100,
     val baseRetryDelayMillis: Long = 1000L,
+    /** Immutable content version, e.g. a strong ETag or content hash; never a path or signed URL. */
+    val contentIdentity: String? = null,
 )
