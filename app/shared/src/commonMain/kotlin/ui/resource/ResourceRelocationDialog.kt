@@ -32,9 +32,9 @@ fun ResourceRelocationDialog(state: LocalResourceRelocationState, onConfirm: () 
                 state.plan?.let { plan ->
                     Text(stringResource(if (plan.directory) Lang.resource_relocate_directory_hint else Lang.resource_relocate_file_hint))
                     Text(stringResource(Lang.resource_relocate_old_location), style = MaterialTheme.typography.labelMedium)
-                    Text(plan.oldLocation, style = MaterialTheme.typography.bodySmall)
+                    Text(resourceLocationLabel(plan.oldLocation), style = MaterialTheme.typography.bodySmall)
                     Text(stringResource(Lang.resource_relocate_new_location), style = MaterialTheme.typography.labelMedium)
-                    Text(plan.newLocation, style = MaterialTheme.typography.bodySmall)
+                    Text(resourceLocationLabel(plan.newLocation), style = MaterialTheme.typography.bodySmall)
                     LazyColumn(Modifier.heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(plan.items, key = { it.resourceId }) { item ->
                             Column {
