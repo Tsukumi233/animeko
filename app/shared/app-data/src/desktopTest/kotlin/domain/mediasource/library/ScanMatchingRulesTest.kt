@@ -89,6 +89,15 @@ class ScanMatchingRulesTest {
         fixture.block()
     }
 
+    @Test fun `source lookup failure records scan error and clears owned token`() = test {
+        assertFailsWith<IllegalStateException> {
+            scanner.scan(requireNotNull(dao.findScanRoot("root"))) { error("Source unavailable") }
+        }
+        val stored = requireNotNull(dao.findScanRoot("root"))
+        assertEquals("Source unavailable", stored.error)
+        assertNull(stored.activeScanToken)
+        assertNull(stored.lastCompletedMillis)
+    }
     @Test fun `first complete scan only suggests even when a rule was confirmed before scanning`() = test {
         confirm.confirm("root", rules())
         assertTrue(scan(video()))

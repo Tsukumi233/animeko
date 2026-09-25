@@ -208,7 +208,8 @@ abstract class ResourceLibraryDao {
     @Transaction
     open suspend fun recordScanEntry(rootId: String, token: String, resource: LibraryResourceEntity): Boolean {
         if (findScanRoot(rootId)?.activeScanToken != token) return false
-        upsertResource(resource.copy(available = true))
+        val present = resource.copy(available = true)
+        if (findResource(resource.id) != present) upsertResource(present)
         upsertScanEntry(LibraryScanEntryEntity(rootId, resource.id, token))
         return true
     }
@@ -221,13 +222,16 @@ abstract class ResourceLibraryDao {
         }
     }
 
-    @Query("UPDATE library_scan_entry SET present = 0 WHERE rootId = :rootId AND scanToken != :token")
+    @Query("UPDATE library_scan_entry SET present = 0 WHERE rootId = :rootId AND scanToken != :token AND present != 0")
     protected abstract suspend fun markUnvisited(rootId: String, token: String)
 
     @Query("""
         UPDATE library_resource SET available = EXISTS(
             SELECT 1 FROM library_scan_entry WHERE resourceId = library_resource.id AND present = 1
         ) WHERE id IN (SELECT resourceId FROM library_scan_entry WHERE rootId = :rootId)
+        AND available != EXISTS(
+            SELECT 1 FROM library_scan_entry WHERE resourceId = library_resource.id AND present = 1
+        )
     """)
     protected abstract suspend fun updateAvailability(rootId: String)
 
@@ -294,7 +298,8 @@ abstract class ResourceLibraryDao {
             } }) return false
         require(bindings.map { it.subjectId to it.episodeId }.distinct().size == bindings.size)
         bindings.forEach { upsertBinding(it) }
-        suggestions.forEach { upsertSuggestion(it) }
+        val previousSuggestions = expectedSuggestions.associateBy { it.resourceId }
+        suggestions.filter { previousSuggestions[it.resourceId] != it }.forEach { upsertSuggestion(it) }
         markUnvisited(expectedRoot.id, token)
         updateAvailability(expectedRoot.id)
         upsertScanRoot(expectedRoot.copy(lastCompletedMillis = completedMillis, activeScanToken = null, error = ruleError))

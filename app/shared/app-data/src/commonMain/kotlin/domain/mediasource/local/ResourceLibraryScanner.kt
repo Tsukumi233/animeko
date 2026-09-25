@@ -26,21 +26,33 @@ class ResourceLibraryScanner(
     private val applyRules: ApplyScanMatchingRulesUseCase,
     private val torrentFiles: suspend (MediaResourceRef) -> List<TorrentResourceFile>,
 ) {
-    suspend fun scan(root: LibraryScanRootEntity, browser: MediaSourceBrowser): Boolean {
+    suspend fun scan(root: LibraryScanRootEntity, browser: MediaSourceBrowser): Boolean = scan(root) { browser }
+
+    suspend fun scan(root: LibraryScanRootEntity, browserProvider: suspend () -> MediaSourceBrowser): Boolean {
         val token = Uuid.randomString()
         val snapshot = library.dao.beginScan(root, token) ?: return false
         try {
+            val browser = browserProvider()
             val rootReference = Json.decodeFromString<MediaResourceRef>(snapshot.referenceJson)
             require(rootReference.sourceId == snapshot.sourceId)
             val inputs = linkedMapOf<ResourceFileIdentity, ResourcePreviewInput>()
+            val indexed = mutableMapOf<String, MediaSourceEntry>()
+            suspend fun index(entry: MediaSourceEntry): Boolean {
+                val previous = indexed[entry.reference.resourceId]
+                require(previous == null || previous == entry) { "Source returned conflicting versions of one resource" }
+                if (previous != null) return true
+                if (!library.indexForScan(snapshot.id, token, entry)) return false
+                indexed[entry.reference.resourceId] = entry
+                return true
+            }
             suspend fun record(input: ResourcePreviewInput): Boolean {
                 val previous = inputs[input.identity]
                 if (previous == null) inputs[input.identity] = input
                 require(previous == null || previous == input) { "Source returned conflicting versions of one file" }
-                return library.indexForScan(snapshot.id, token, input.entry)
+                return index(input.entry)
             }
             suspend fun torrent(entry: MediaSourceEntry): Boolean {
-                if (!library.indexForScan(snapshot.id, token, entry)) return false
+                if (!index(entry)) return false
                 for (file in torrentFiles(entry.reference).filter { it.isVideo }) {
                     currentCoroutineContext().ensureActive()
                     if (!record(ResourcePreviewInput(entry, file.pathInTorrent, entry.name, entry.reference))) return false

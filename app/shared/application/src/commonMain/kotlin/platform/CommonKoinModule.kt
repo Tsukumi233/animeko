@@ -30,10 +30,12 @@ import me.him188.ani.app.domain.mediasource.pikpak.PikPakAccountServices
 import me.him188.ani.app.domain.mediasource.pikpak.PikPakMediaSource
 
 import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanner
+import me.him188.ani.app.domain.mediasource.local.ResourceLibraryScanCoordinator
 import me.him188.ani.app.domain.mediasource.library.AssociateResourcesUseCase
 import me.him188.ani.app.domain.mediasource.library.ApplyScanMatchingRulesUseCase
 import me.him188.ani.app.domain.mediasource.library.ConfirmScanMatchingRulesUseCase
 import me.him188.ani.app.domain.mediasource.torrent.TorrentResourceBrowser
+import me.him188.ani.datasources.api.source.MediaSourceBrowser
 import me.him188.ani.datasources.api.source.MediaSourceResourceFactory
 
 import me.him188.ani.app.domain.mediasource.local.LocalFileMediaSource
@@ -474,6 +476,20 @@ private fun KoinApplication.otherModules(
     single { ConfirmScanMatchingRulesUseCase(get(), get()) }
     single { ApplyScanMatchingRulesUseCase(get(), get(), get()) }
     single { ResourceLibraryScanner(get(), get()) { get<TorrentResourceBrowser>().browse(it).files } }
+    single {
+        val library = get<ResourceLibraryRepository>()
+        val scanner = get<ResourceLibraryScanner>()
+        val sources = get<MediaSourceManager>()
+        ResourceLibraryScanCoordinator(
+            coroutineScope,
+            roots = { library.dao.scanRoots().first() },
+            findRoot = library.dao::findScanRoot,
+            scan = { root -> scanner.scan(root) {
+                sources.allInstances.first().firstOrNull { it.mediaSourceId == root.sourceId }?.source as? MediaSourceBrowser
+                    ?: error("来源不可用或不支持目录浏览")
+            } },
+        )
+    }
     single { TorrentResourceBrowser({ get<TorrentManager>().engines.firstOrNull { it.isSupported } }, get()) }
     single {
         AssociateResourcesUseCase(get(), get()) {
