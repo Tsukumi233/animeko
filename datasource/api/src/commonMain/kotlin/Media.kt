@@ -121,7 +121,17 @@ sealed interface Media {
      * @see MediaSource.kind
      */
     val kind: MediaSourceKind
+
+    /** 用户确认的条目与剧集归属，不改变资源或种子的身份。 */
+    val association: MediaAssociation? get() = null
 }
+
+@Serializable
+data class MediaAssociation(
+    val subjectId: String,
+    val episodeIds: List<String>,
+    val selectedFilePaths: Map<String, String> = emptyMap(),
+)
 
 /**
  * 找到该 [Media] 的实际来源 [DefaultMedia]
@@ -152,6 +162,7 @@ constructor(
     override val location: MediaSourceLocation = MediaSourceLocation.Online,
     override val kind: MediaSourceKind = MediaSourceKind.BitTorrent,
     @Transient private val _primaryConstructorMarker: Unit = Unit,
+    override val association: MediaAssociation? = null,
 ) : Media {
     @OptIn(SerializationOnly::class)
     constructor(
@@ -301,6 +312,7 @@ data class MediaProperties @SerializationOnly constructor(
     val subtitleKind: SubtitleKind? = null, // #615
     @Suppress("unused")
     @Transient private val _primaryConstructorMarker: Unit = Unit,
+    override val association: MediaAssociation? = null,
 ) {
     @OptIn(SerializationOnly::class)
     constructor(
