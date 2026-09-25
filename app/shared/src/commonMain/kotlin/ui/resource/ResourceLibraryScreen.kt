@@ -332,7 +332,7 @@ private fun ResourceAssociationDialog(viewModel: ResourceLibraryViewModel) {
                 }
             }
         },
-        confirmButton = { TextButton(viewModel::confirm, enabled = !state.loading && !state.saving && selected.any { it.identity !in state.ignored } && selected.all { it.identity in state.ignored || it.identity in state.targets }) { Text(stringResource(Lang.resource_confirm)) } },
+        confirmButton = { TextButton(viewModel::confirm, enabled = !state.loading && !state.saving && selected.isNotEmpty() && selected.all { it.identity in state.ignored || it.identity in state.targets }) { Text(stringResource(Lang.resource_confirm)) } },
         dismissButton = { TextButton(viewModel::dismissAssociation, enabled = !state.saving) { Text(stringResource(Lang.resource_cancel)) } },
     )
 }

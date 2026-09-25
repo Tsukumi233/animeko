@@ -8,6 +8,7 @@ package me.him188.ani.app.domain.mediasource.library
 import kotlinx.coroutines.flow.first
 import me.him188.ani.app.data.repository.media.ResourceAssociationInput
 import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
+import me.him188.ani.app.data.repository.media.ResourceIgnoredInput
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.app.domain.media.fetch.create
 import me.him188.ani.datasources.api.MediaAssociation
@@ -36,8 +37,14 @@ class AssociateResourcesUseCase(
     private val factories: suspend () -> Map<String, MediaSourceResourceFactory>,
 ) {
     /** 返回的候选携带确认的身份，可交给当前剧集的 MediaSelector.select。 */
-    suspend operator fun invoke(selections: List<ResourceEpisodeSelection>): List<ResourceAssociationInput> {
-        if (selections.isEmpty()) return emptyList()
+    suspend operator fun invoke(
+        selections: List<ResourceEpisodeSelection>,
+        ignored: List<ResourceIgnoredInput> = emptyList(),
+    ): List<ResourceAssociationInput> {
+        if (selections.isEmpty()) {
+            if (ignored.isNotEmpty()) library.associateBatch(emptyList(), ignored = ignored)
+            return emptyList()
+        }
         validate(selections)
         val sources = factories()
         val metadata = selections.map { it.subjectId }.distinct().associateWith { subjectId ->
@@ -63,7 +70,7 @@ class AssociateResourcesUseCase(
             )
             ResourceAssociationInput(selection.entry, selection.subjectId, selection.episodeId, media, selection.selectedFilePath)
         }
-        library.associateBatch(inputs, replaceFileBindings = true)
+        library.associateBatch(inputs, replaceFileBindings = true, ignored = ignored)
         return inputs
     }
 

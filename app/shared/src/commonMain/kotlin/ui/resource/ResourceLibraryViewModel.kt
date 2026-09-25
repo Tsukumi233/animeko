@@ -27,6 +27,7 @@ import me.him188.ani.app.data.persistent.database.dao.LibraryScanRootEntity
 import me.him188.ani.app.data.persistent.database.dao.LibrarySourceCredentialsEntity
 import me.him188.ani.app.data.repository.media.MediaSourceInstanceRepository
 import me.him188.ani.app.data.repository.media.ResourceLibraryRepository
+import me.him188.ani.app.data.repository.media.ResourceIgnoredInput
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.app.data.repository.subject.SubjectSearchRepository
 import me.him188.ani.app.data.repository.user.SettingsRepository
@@ -121,18 +122,41 @@ class ResourceLibraryViewModel(
         val input = ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name,
             MediaSourceEntryKind.valueOf(resource.entryKind), resource.size, resource.modifiedTimeMillis), selectedFilePath = filePath)
         selected.value = listOf(input)
-        beginAssociation()
-        if (target != null) {
-            association.update { it.copy(targets = mapOf(input.identity to target)) }
-            chooseSubject(target.subjectId)
-        }
+        openAssociation(target)
     }
 
-    fun beginAssociation() {
+    fun beginAssociation() = openAssociation()
+
+    private fun openAssociation(explicitTarget: ResourceEpisodeTarget? = null) {
         if (selected.value.isEmpty()) return
         subjectLoad?.cancel()
-        association.value = ResourceAssociationUiState(visible = true)
-        subjectQuery.value = preview.build(selected.value, emptyList()).firstOrNull()?.titleSuggestions?.firstOrNull().orEmpty()
+        val inputs = selected.value
+        val initial = ResourceAssociationUiState(visible = true, loading = true)
+        association.value = initial
+        subjectQuery.value = preview.build(inputs, emptyList()).firstOrNull()?.titleSuggestions?.firstOrNull().orEmpty()
+        subjectLoad = backgroundScope.launch {
+            try {
+                val ignored = mutableSetOf<ResourceFileIdentity>()
+                val targets = mutableMapOf<ResourceFileIdentity, ResourceEpisodeTarget>()
+                val storedBindings = library.bindings.first()
+                for (input in inputs) {
+                    val reference = input.entry.reference
+                    val resource = library.dao.findResource(reference.sourceId, reference.resourceId) ?: continue
+                    val binding = storedBindings.singleOrNull { it.resourceId == resource.id && it.selectedFilePath == input.selectedFilePath }
+                    if (binding != null) targets[input.identity] = ResourceEpisodeTarget(binding.subjectId, binding.episodeId)
+                    else if (library.dao.findSuggestion(resource.id)?.let { input.selectedFilePath in library.decodeIgnoredFiles(it) } == true) {
+                        ignored += input.identity
+                    }
+                }
+                if (explicitTarget != null) targets[inputs.single().identity] = explicitTarget
+                association.update { if (it.requestId == initial.requestId) it.copy(targets = targets, ignored = ignored) else it }
+                val catalog = targets.values.map { it.subjectId }.distinct().map { subjects.librarySubjectCollectionFlow(it).first() }
+                association.update { if (it.requestId == initial.requestId) it.copy(subjects = catalog, loading = false) else it }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                association.update { if (it.requestId == initial.requestId) it.copy(loading = false, error = e) else it }
+            }
+        }
     }
 
     fun chooseSubject(subjectId: Int) {
@@ -181,14 +205,15 @@ class ResourceLibraryViewModel(
         val state = association.value
         if (state.saving || state.loading) return
         val inputs = selected.value.filterNot { it.identity in state.ignored }
-        if (inputs.isEmpty() || inputs.any { it.identity !in state.targets }) return
+        if (selected.value.isEmpty() || inputs.any { it.identity !in state.targets }) return
+        val ignored = selected.value.filter { it.identity in state.ignored }.map { ResourceIgnoredInput(it.entry, it.selectedFilePath) }
         association.update { it.copy(saving = true, error = null) }
         backgroundScope.launch {
             try {
                 associate(inputs.map { input ->
                     val target = state.targets.getValue(input.identity)
                     ResourceEpisodeSelection(input.entry, target.subjectId, target.episodeId, input.selectedFilePath)
-                })
+                }, ignored = ignored)
                 association.value = ResourceAssociationUiState()
                 selected.value = emptyList()
             } catch (e: CancellationException) { throw e }

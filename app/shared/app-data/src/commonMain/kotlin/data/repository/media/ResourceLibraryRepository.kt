@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.Serializable
 import me.him188.ani.app.data.persistent.database.dao.LibraryEpisodeBindingEntity
+import me.him188.ani.app.data.persistent.database.dao.LibraryMatchSuggestionEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryResourceEntity
 import me.him188.ani.app.data.persistent.database.dao.ResourceLibraryDao
 import me.him188.ani.datasources.api.Media
@@ -21,6 +23,7 @@ import me.him188.ani.datasources.api.unwrapCached
 import me.him188.ani.datasources.api.source.MediaFetchRequest
 import me.him188.ani.datasources.api.source.MediaResourceRef
 import me.him188.ani.datasources.api.source.MediaSourceEntry
+import me.him188.ani.datasources.api.source.MediaSourceEntryKind
 import me.him188.ani.datasources.api.topic.EpisodeRange
 import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.utils.platform.Uuid
@@ -32,6 +35,19 @@ data class ResourceAssociationInput(
     val media: Media,
     val selectedFilePath: String? = null,
 )
+
+data class ResourceIgnoredInput(val entry: MediaSourceEntry, val selectedFilePath: String? = null) {
+    init {
+        require((entry.kind == MediaSourceEntryKind.VIDEO && selectedFilePath == null) ||
+                (entry.kind == MediaSourceEntryKind.TORRENT && !selectedFilePath.isNullOrBlank()))
+    }
+}
+
+/** null 代表独立视频，非空路径代表 BT 发布中的精确文件。 */
+@Serializable
+data class LibraryIgnoredFiles(val paths: Set<String?> = emptySet(), val version: Int = 1) {
+    init { require(version == 1) }
+}
 
 /** 保存明确的资源归属；不改变收藏状态、播放历史或全局选源偏好。 */
 class ResourceLibraryRepository(
@@ -61,20 +77,9 @@ class ResourceLibraryRepository(
         episodeId: Int,
         media: Media,
         selectedFilePath: String? = null,
-    ): LibraryResourceEntity = writes.withLock {
-        require(subjectId > 0 && episodeId > 0) { "A resource must be associated with an existing episode" }
-        require(media.mediaSourceId == entry.reference.sourceId) { "Resource source does not match media" }
-        val resource = entry.toEntity(dao.findResource(entry.reference.sourceId, entry.reference.resourceId)?.id)
-        dao.confirmBinding(
-            resource,
-            LibraryEpisodeBindingEntity(
-                resource.id, resource.sourceId, subjectId, episodeId,
-                json.encodeToString(Media.serializer(), media), selectedFilePath,
-            ),
-        )
-        mutableRevision.update { it + 1 }
-        resource
-    }
+    ): LibraryResourceEntity = associateBatch(
+        listOf(ResourceAssociationInput(entry, subjectId, episodeId, media, selectedFilePath)),
+    ).single()
 
     suspend fun removeBinding(resourceId: String, subjectId: Int, episodeId: Int) = writes.withLock {
         dao.removeBinding(resourceId, subjectId, episodeId)
@@ -85,8 +90,11 @@ class ResourceLibraryRepository(
     suspend fun associateBatch(
         inputs: List<ResourceAssociationInput>,
         replaceFileBindings: Boolean = false,
+        ignored: List<ResourceIgnoredInput> = emptyList(),
     ) = writes.withLock {
         require(inputs.all { it.subjectId > 0 && it.episodeId > 0 && it.media.mediaSourceId == it.entry.reference.sourceId })
+        val confirmedFiles = inputs.map { Triple(it.entry.reference.sourceId, it.entry.reference.resourceId, it.selectedFilePath) }.toSet()
+        require(ignored.none { Triple(it.entry.reference.sourceId, it.entry.reference.resourceId, it.selectedFilePath) in confirmedFiles })
         val resources = LinkedHashMap<Pair<String, String>, LibraryResourceEntity>()
         val bindings = inputs.map { input ->
             val reference = input.entry.reference
@@ -97,8 +105,22 @@ class ResourceLibraryRepository(
             LibraryEpisodeBindingEntity(resource.id, resource.sourceId, input.subjectId, input.episodeId,
                 json.encodeToString(Media.serializer(), input.media), input.selectedFilePath)
         }
-        dao.confirmBindings(resources.values.toList(), bindings, replaceFileBindings)
+        for (input in ignored) {
+            val reference = input.entry.reference
+            val key = reference.sourceId to reference.resourceId
+            if (key !in resources) resources[key] = input.entry.toEntity(dao.findResource(reference.sourceId, reference.resourceId)?.id)
+        }
+        val suggestions = resources.values.mapNotNull { resource ->
+            val previous = dao.findSuggestion(resource.id)?.let(::decodeIgnoredFiles).orEmpty()
+            val confirmed = bindings.filter { it.resourceId == resource.id }.map { it.selectedFilePath }.toSet()
+            val skipped = ignored.filter { it.entry.reference.sourceId == resource.sourceId && it.entry.reference.resourceId == resource.resourceKey }
+                .map { it.selectedFilePath }
+            val paths = previous - confirmed + skipped
+            if (paths.isEmpty()) null else LibraryMatchSuggestionEntity(resource.id, json.encodeToString(LibraryIgnoredFiles(paths)), ignored = true)
+        }
+        dao.confirmBindings(resources.values.toList(), bindings, replaceFileBindings, suggestions)
         mutableRevision.update { it + 1 }
+        resources.values.toList()
     }
 
     suspend fun removeResource(resourceId: String) = writes.withLock {
@@ -108,6 +130,9 @@ class ResourceLibraryRepository(
 
     fun decodeMedia(binding: LibraryEpisodeBindingEntity): Media = json.decodeFromString(binding.mediaJson)
     fun decodeReference(resource: LibraryResourceEntity): MediaResourceRef = json.decodeFromString(resource.referenceJson)
+
+    fun decodeIgnoredFiles(suggestion: LibraryMatchSuggestionEntity): Set<String?> =
+        if (!suggestion.ignored) emptySet() else json.decodeFromString<LibraryIgnoredFiles>(suggestion.suggestionJson).paths
 
     /** 关联以条目为单位返回，切集共享同一批候选；缺失资源保留候选并由解析器报告错误。 */
     suspend fun candidates(sourceId: String, request: MediaFetchRequest): List<Media> {

@@ -148,6 +148,9 @@ abstract class ResourceLibraryDao {
     @Query("SELECT * FROM library_match_suggestion")
     abstract fun suggestions(): Flow<List<LibraryMatchSuggestionEntity>>
 
+    @Query("SELECT * FROM library_match_suggestion WHERE resourceId = :resourceId")
+    abstract suspend fun findSuggestion(resourceId: String): LibraryMatchSuggestionEntity?
+
     @Query("SELECT * FROM library_scan_root ORDER BY name, id")
     abstract fun scanRoots(): Flow<List<LibraryScanRootEntity>>
 
@@ -207,15 +210,18 @@ abstract class ResourceLibraryDao {
         resources: List<LibraryResourceEntity>,
         bindings: List<LibraryEpisodeBindingEntity>,
         replaceFileBindings: Boolean = false,
+        suggestions: List<LibraryMatchSuggestionEntity> = emptyList(),
     ) {
         val byId = resources.associateBy { it.id }
         require(bindings.all { byId[it.resourceId]?.sourceId == it.sourceId })
+        require(suggestions.all { it.resourceId in byId })
         resources.forEach { upsertResource(it) }
         if (replaceFileBindings) {
             bindings.forEach { removeConflictingFileBindings(it.resourceId, it.selectedFilePath, it.subjectId, it.episodeId) }
         }
         bindings.forEach { upsertBinding(it) }
         resources.forEach { removeSuggestion(it.id) }
+        suggestions.forEach { upsertSuggestion(it) }
     }
 
     /** 仅完整成功且仍是当前扫描的结果可以判定缺失；取消和失败不调用此方法。 */
