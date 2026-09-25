@@ -103,7 +103,14 @@ class ResourceLibraryViewModel(
     val resources = library.resources.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val bindings = library.bindings.stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
     val roots = library.dao.scanRoots().stateIn(backgroundScope, SharingStarted.Eagerly, emptyList())
-    val browser = ResourceBrowserController(backgroundScope, torrentBrowser)
+    val browser = ResourceBrowserController(backgroundScope, torrentBrowser) { sourceId, query ->
+        library.searchIndexed(sourceId, query).map { result ->
+            val resource = result.resource
+            ResourcePreviewInput(MediaSourceEntry(library.decodeReference(resource), resource.name,
+                MediaSourceEntryKind.valueOf(resource.entryKind), resource.size, resource.modifiedTimeMillis),
+                selectedFilePath = result.selectedFilePath)
+        }
+    }
     val selected = MutableStateFlow<List<ResourcePreviewInput>>(emptyList())
     val association = MutableStateFlow(ResourceAssociationUiState())
     val busy = MutableStateFlow(false)

@@ -238,13 +238,14 @@ internal fun ResourceBrowserContent(
                 TextButton(onScan, enabled = canScan) { Text(stringResource(Lang.resource_scan_directory)) }
             }
         }
-        Text((listOf(state.sourceName) + state.path.map { it.name }).joinToString(" / "), modifier = Modifier.padding(horizontal = 16.dp))
+        Text((listOf(state.sourceName) + state.path.map { it.name }.let { if (it.firstOrNull() == state.sourceName) it.drop(1) else it }).joinToString(" / "), modifier = Modifier.padding(horizontal = 16.dp))
         scanControls()
         if (state.searchScope != MediaSourceSearchScope.NONE) Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(query, { query = it }, modifier = Modifier.weight(1f).testTag("resource-search"), singleLine = true,
-                label = { Text(stringResource(if (state.searchScope == MediaSourceSearchScope.SOURCE) Lang.resource_search_source else Lang.resource_search_folder)) })
+                label = { Text(stringResource(if (state.searchesIndex) Lang.resource_search_index else if (state.searchScope == MediaSourceSearchScope.SOURCE) Lang.resource_search_source else Lang.resource_search_folder)) })
             TextButton({ onSearch(query) }, enabled = !state.loading) { Text(stringResource(Lang.resource_search)) }
         }
+        if (state.searchesIndex) Text(stringResource(Lang.resource_search_index_hint), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             if (state.error != null) item { ResourceEmptyText(stringResource(Lang.resource_load_failed)) }

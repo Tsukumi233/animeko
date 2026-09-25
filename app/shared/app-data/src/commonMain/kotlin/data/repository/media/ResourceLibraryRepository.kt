@@ -50,6 +50,20 @@ data class LibraryIgnoredFiles(val paths: Set<String?> = emptySet(), val version
     init { require(version == 1) }
 }
 
+data class IndexedLibraryResource(val resource: LibraryResourceEntity, val selectedFilePath: String? = null)
+
+@Serializable
+private data class IndexedSuggestionFile(val selectedFilePath: String? = null)
+
+@Serializable
+private data class IndexedSuggestionFiles(
+    val paths: Set<String?> = emptySet(),
+    val rows: List<IndexedSuggestionFile> = emptyList(),
+    val version: Int = 1,
+) {
+    init { require(version == 1) }
+}
+
 /** 保存明确的资源归属；不改变收藏状态、播放历史或全局选源偏好。 */
 class ResourceLibraryRepository(
     val dao: ResourceLibraryDao,
@@ -144,6 +158,29 @@ class ResourceLibraryRepository(
         dao.confirmBindings(resources.values.toList(), bindings, replaceFileBindings, suggestions)
         mutableRevision.update { it + 1 }
         resources.values.toList()
+    }
+
+    /** Source-wide name search over saved index records; it never queries or claims to enumerate a server. */
+    suspend fun searchIndexed(sourceId: String, query: String): List<IndexedLibraryResource> {
+        if (query.isBlank()) return emptyList()
+        val resources = dao.resourcesForSource(sourceId).first()
+        val bindings = dao.bindingsForSourceSnapshot(sourceId).groupBy { it.resourceId }
+        val suggestions = dao.suggestionsForSourceSnapshot(sourceId).associateBy { it.resourceId }
+        return resources.flatMap { resource ->
+            val nameMatches = resource.name.contains(query, ignoreCase = true)
+            when (resource.entryKind) {
+                MediaSourceEntryKind.VIDEO.name -> if (nameMatches) listOf(IndexedLibraryResource(resource)) else emptyList()
+                MediaSourceEntryKind.TORRENT.name -> {
+                    val stored = suggestions[resource.id]?.let { json.decodeFromString<IndexedSuggestionFiles>(it.suggestionJson) }
+                    val paths = (bindings[resource.id].orEmpty().map { it.selectedFilePath } +
+                            stored?.paths.orEmpty() + stored?.rows.orEmpty().map { it.selectedFilePath })
+                        .filterNotNull().distinct()
+                    if (paths.isEmpty() && nameMatches) listOf(IndexedLibraryResource(resource))
+                    else paths.filter { nameMatches || it.contains(query, ignoreCase = true) }.map { IndexedLibraryResource(resource, it) }
+                }
+                else -> emptyList()
+            }
+        }
     }
 
     suspend fun removeResource(resourceId: String) = writes.withLock {

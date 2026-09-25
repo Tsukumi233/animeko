@@ -115,6 +115,12 @@ class PikPakMediaSource(
         return ConnectionStatus.SUCCESS
     }
 
+    override suspend fun rootEntry(): MediaSourceEntry {
+        val locator = PikPakResourceLocator(accounts.accountScope(), "", "", isDirectory = true)
+        return MediaSourceEntry(MediaResourceRef(mediaSourceId, locator.resourceId, locatorJson.encodeToString(locator)),
+            info.displayName, MediaSourceEntryKind.DIRECTORY)
+    }
+
     override suspend fun browse(parent: MediaResourceRef?, pageToken: String?): MediaSourcePage {
         val locator = parent?.decodePikPakLocator(mediaSourceId)
         require(locator == null || locator.isDirectory) { "Only directories can be browsed" }
@@ -181,7 +187,7 @@ private val locatorJson = Json { ignoreUnknownKeys = true }
 private fun MediaResourceRef.decodePikPakLocator(sourceId: String): PikPakResourceLocator {
     require(this.sourceId == sourceId && version == 1) { "Unsupported PikPak reference" }
     val decoded = locatorJson.decodeFromString<PikPakResourceLocator>(locator)
-    require(decoded.accountScope.isNotEmpty() && decoded.fileId.isNotEmpty() && decoded.resourceId == resourceId)
+    require(decoded.accountScope.isNotEmpty() && (decoded.fileId.isNotEmpty() || decoded.isDirectory) && decoded.resourceId == resourceId)
     return decoded
 }
 

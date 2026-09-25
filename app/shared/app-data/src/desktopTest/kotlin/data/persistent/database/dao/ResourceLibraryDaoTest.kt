@@ -21,6 +21,19 @@ class ResourceLibraryDaoTest {
 
     private fun resource() = LibraryResourceEntity("video", "disk", "01.mkv", "{}", "01.mkv", "VIDEO")
 
+    @Test fun `removing a file index removes its picker root but keeps nonrecursive directory roots`() = test { dao ->
+        val file = resource()
+        dao.upsertResource(file)
+        val pickedFile = LibraryScanRootEntity("file-root", file.sourceId, file.referenceJson, "file", recursive = false)
+        val directory = pickedFile.copy(id = "directory-root", referenceJson = "directory-reference")
+        dao.upsertScanRoot(pickedFile)
+        dao.upsertScanRoot(directory)
+        dao.upsertScanEntry(LibraryScanEntryEntity(directory.id, file.id, "scan"))
+        dao.removeResource(file.id)
+        assertEquals(listOf(directory), dao.scanRoots().first())
+        assertEquals(null, dao.findResource(file.id))
+    }
+
     @Test
     fun `forgetting a scan root retains bindings and prevents in flight completion`() = test { dao ->
         val binding = LibraryEpisodeBindingEntity("video", "disk", 1, 11, "{}")

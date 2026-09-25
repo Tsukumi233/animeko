@@ -65,6 +65,9 @@ interface MediaSourceBrowser {
     val supportsRootBrowse: Boolean get() = true
     val searchScope: MediaSourceSearchScope get() = MediaSourceSearchScope.NONE
 
+    /** Optional real container for the configured root. Its reference is produced and validated by this source. */
+    suspend fun rootEntry(): MediaSourceEntry? = null
+
     suspend fun browse(parent: MediaResourceRef? = null, pageToken: String? = null): MediaSourcePage
 
     suspend fun search(

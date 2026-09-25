@@ -10,6 +10,7 @@ import me.him188.ani.app.domain.media.download.capability.MediaDownloadAccessReq
 import me.him188.ani.app.domain.media.download.capability.PreparedDownloadAccess
 import me.him188.ani.app.domain.media.resolver.EpisodeMetadata
 import me.him188.ani.datasources.api.EpisodeSort
+import me.him188.ani.datasources.api.source.MediaSourceEntryKind
 import me.him188.ani.datasources.api.source.MediaFetchRequest
 import org.openani.mediamp.io.SeekableInput
 import org.openani.mediamp.source.SeekableInputMediaData
@@ -21,6 +22,22 @@ import kotlin.test.assertTrue
 class FileServiceMediaSourceTest {
     private val args = FileServiceArguments("NAS", FileServiceProtocol.SMB, "nas", "video")
     private val request = MediaFetchRequest("subject", "episode", subjectNames = listOf("番剧"), episodeSort = EpisodeSort(1), episodeName = "第一集")
+
+    @Test fun `configured root is browsable scoped and stable across display renames`() = runTest {
+        var credentials = FileServiceCredentials("user", "secret")
+        val provider = FileServiceCredentialProvider { credentials }
+        val source = FileServiceMediaSource("source", args, provider, FakeSmbAccess())
+        val root = source.rootEntry()
+        assertEquals(MediaSourceEntryKind.DIRECTORY, root.kind)
+        assertEquals("NAS", root.name)
+        assertEquals(source.browse().entries.map { it.reference }, source.browse(root.reference).entries.map { it.reference })
+        assertEquals(root.reference, source.browse(root.reference).entries.single().parent)
+        assertTrue(!root.reference.locator.contains("secret"))
+        val renamed = FileServiceMediaSource("source", args.copy(name = "Renamed"), provider, FakeSmbAccess())
+        assertEquals(root.reference, renamed.rootEntry().reference)
+        credentials = FileServiceCredentials("another", "secret")
+        assertFailsWith<IllegalArgumentException> { source.browse(root.reference) }
+    }
 
     @Test
     fun `account and endpoint changes reject saved references without exposing credentials`() = runTest {

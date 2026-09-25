@@ -312,10 +312,18 @@ abstract class ResourceLibraryDao {
         return true
     }
 
+    @Query("SELECT id FROM library_scan_root WHERE sourceId = :sourceId AND referenceJson = :referenceJson")
+    protected abstract suspend fun rootsForReference(sourceId: String, referenceJson: String): List<String>
+
     /** 删除索引及关联；此 DAO 不持有文件系统或远程删除能力。 */
     @Transaction
     open suspend fun removeResource(resourceId: String) {
-        findResource(resourceId)?.let { invalidateScans(it.sourceId) }
+        findResource(resourceId)?.let { resource ->
+            invalidateScans(resource.sourceId)
+            if (resource.entryKind == "VIDEO") {
+                rootsForReference(resource.sourceId, resource.referenceJson).forEach { removeScanRoot(it) }
+            }
+        }
         removeBindingsForResource(resourceId)
         removeSuggestion(resourceId)
         deleteScanEntries(resourceId)

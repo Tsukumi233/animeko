@@ -1,6 +1,9 @@
 package me.him188.ani.app.ui.resource
 
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +39,19 @@ class ResourceScanRulesScreenTest {
     private val locale = Locale.getDefault()
     @BeforeTest fun setup() { Locale.setDefault(Locale.ENGLISH) }
     @AfterTest fun teardown() { Locale.setDefault(locale) }
+
+    @Test fun `large catalog leaves scope confirmation before episode preview`() = runAniComposeUiTest {
+        val subject = createTestSubjectCollection(1, (1..220).map { id -> EpisodeCollectionInfo(
+            EpisodeInfo.Empty.copy(episodeId = id, sort = EpisodeSort(id)), UnifiedCollectionType.NOT_COLLECTED,
+        ) }, UnifiedCollectionType.NOT_COLLECTED)
+        val state = ResourceScanRuleState(subject = subject)
+        setContent { ProvideCompositionLocalsForPreview {
+            Surface(Modifier.width(360.dp).height(560.dp).verticalScroll(rememberScrollState())) {
+                ResourceScanRuleOptions(state, {}, {})
+            }
+        } }
+        onNodeWithTag("scan-confirm-scope").assertIsDisplayed()
+    }
 
     @Test fun `title scope and acknowledgement are separate controls on narrow screens`() = runAniComposeUiTest {
         val subject = createTestSubjectCollection(1, listOf(EpisodeCollectionInfo(

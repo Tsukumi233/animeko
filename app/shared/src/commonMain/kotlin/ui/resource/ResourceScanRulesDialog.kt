@@ -74,15 +74,13 @@ internal fun ResourceScanRulesDialog(viewModel: ResourceLibraryViewModel) {
     val query by viewModel.subjectQuery.collectAsStateWithLifecycle()
     val sources by viewModel.sources.collectAsStateWithLifecycle()
     val sourceName = sources.find { it.mediaSourceId == root.sourceId }?.source?.info?.displayName ?: root.sourceId
-    val reference = Json.decodeFromString<MediaResourceRef>(root.referenceJson)
     val results = viewModel.subjectResults.collectAsLazyPagingItems()
     var showResults by remember(root.id) { mutableStateOf(true) }
     AlertDialog(onDismissRequest = viewModel.scanRules::dismiss,
         title = { Text(stringResource(Lang.resource_scan_rules)) },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
-                Text("$sourceName / ${root.name}", style = MaterialTheme.typography.titleMedium)
-                Text(reference.resourceId, style = MaterialTheme.typography.bodySmall)
+                Text(listOf(sourceName, root.name).distinct().joinToString(" / "), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(Lang.resource_scan_scope_hint), style = MaterialTheme.typography.bodySmall)
                 if (root.matchingRuleJson != null) Text(stringResource(Lang.resource_scan_replace_rules), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(query, { viewModel.subjectQuery.value = it; showResults = true },
@@ -133,6 +131,10 @@ internal fun ResourceScanRuleOptions(
             Checkbox(state.acceptAllTitles, { value -> onEdit { it.copy(acceptAllTitles = value) } }, enabled = enabled, modifier = Modifier.testTag("scan-all-titles"))
             Text(stringResource(Lang.resource_scan_all_titles))
         }
+        Row {
+            Checkbox(state.scopeConfirmed, onConfirmScope, enabled = enabled, modifier = Modifier.testTag("scan-confirm-scope"))
+            Text(stringResource(Lang.resource_scan_confirm_scope))
+        }
         Text(stringResource(Lang.resource_scan_mapping_preview), style = MaterialTheme.typography.titleSmall)
         subject.episodes.forEach { episode ->
             val sort = scanEpisodeNumber(episode.episodeInfo, state.seasonNumbers)
@@ -145,10 +147,6 @@ internal fun ResourceScanRuleOptions(
         }
         if (state.mappings.map { it.sort }.distinct().size != state.mappings.size) {
             Text(stringResource(Lang.resource_scan_duplicate_sort), color = MaterialTheme.colorScheme.error)
-        }
-        Row {
-            Checkbox(state.scopeConfirmed, onConfirmScope, enabled = enabled, modifier = Modifier.testTag("scan-confirm-scope"))
-            Text(stringResource(Lang.resource_scan_confirm_scope))
         }
     }
 }

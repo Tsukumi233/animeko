@@ -120,6 +120,12 @@ class FileServiceMediaSource(
         return ConnectionStatus.SUCCESS
     }
 
+    override suspend fun rootEntry(): MediaSourceEntry {
+        val scope = arguments.scope(account())
+        return FileServiceEntry("", "", directory = true, size = null, modifiedTimeMillis = null)
+            .toSourceEntry(mediaSourceId, scope, null).copy(name = info.displayName)
+    }
+
     override suspend fun browse(parent: MediaResourceRef?, pageToken: String?): MediaSourcePage {
         require(pageToken == null) { "This file server returns a complete directory listing" }
         val account = account()

@@ -53,6 +53,15 @@ class ResourceBrowserScreenTest {
     @BeforeTest fun setLocale() = Locale.setDefault(Locale.ENGLISH)
     @AfterTest fun restoreLocale() = Locale.setDefault(originalLocale)
 
+    @Test fun `indexed search names its limited scope and root exposes scan action`() = runAniComposeUiTest {
+        val root = MediaSourceEntry(MediaResourceRef("disk", "root"), "NAS", MediaSourceEntryKind.DIRECTORY)
+        render(390.dp, state.copy(path = listOf(root), rootReference = root.reference, searchesIndex = true,
+            searchScope = MediaSourceSearchScope.SOURCE))
+        onNodeWithText("Search indexed files").assertIsDisplayed()
+        onNodeWithText("Searches saved file names and paths in this source. Unscanned files are not included.").assertIsDisplayed()
+        onNodeWithText("Scan this folder").assertIsDisplayed()
+    }
+
     @Test fun `compact subject resource button opens browsing with the correct subject`() = runAniComposeUiTest {
         val navigator = AniNavigator().apply { setBackStack(mutableStateListOf(NavRoutes.Main(MainScreenPage.Exploration))) }
         setContent {

@@ -18,4 +18,6 @@
     <string name="resource_scan_duplicate_sort">Repeated numbers cannot match uniquely. Deselect conflicting episodes or change numbering.</string>
     <string name="resource_scan_confirm_scope">I confirm this folder, title scope and episode mapping. Apply to future complete scans.</string>
     <string name="resource_scan_replace_rules">Saving replaces this folder’s existing rules with the mapping shown below. Review the subject, titles and episode mapping before confirming.</string>
+    <string name="resource_search_index">Search indexed files</string>
+    <string name="resource_search_index_hint">Searches saved file names and paths in this source. Unscanned files are not included.</string>
 </resources>
