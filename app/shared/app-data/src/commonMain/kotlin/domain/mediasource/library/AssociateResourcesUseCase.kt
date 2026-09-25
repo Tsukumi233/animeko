@@ -45,6 +45,14 @@ class AssociateResourcesUseCase(
             if (ignored.isNotEmpty()) library.associateBatch(emptyList(), ignored = ignored)
             return emptyList()
         }
+        val inputs = prepare(selections)
+        library.associateBatch(inputs, replaceFileBindings = true, ignored = ignored)
+        return inputs
+    }
+
+    /** Prepares complete metadata and candidates without writing associations or invalidating scans. */
+    suspend fun prepare(selections: List<ResourceEpisodeSelection>): List<ResourceAssociationInput> {
+        if (selections.isEmpty()) return emptyList()
         validate(selections)
         val sources = factories()
         val metadata = selections.map { it.subjectId }.distinct().associateWith { subjectId ->
@@ -68,9 +76,9 @@ class AssociateResourcesUseCase(
                     selection.selectedFilePath?.let { mapOf(selection.episodeId.toString() to it) }.orEmpty(),
                 ),
             )
+            require(media.mediaSourceId == selection.entry.reference.sourceId) { "Candidate belongs to a different source" }
             ResourceAssociationInput(selection.entry, selection.subjectId, selection.episodeId, media, selection.selectedFilePath)
         }
-        library.associateBatch(inputs, replaceFileBindings = true, ignored = ignored)
         return inputs
     }
 

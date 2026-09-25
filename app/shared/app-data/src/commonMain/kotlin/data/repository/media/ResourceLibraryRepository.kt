@@ -16,6 +16,7 @@ import kotlinx.serialization.Serializable
 import me.him188.ani.app.data.persistent.database.dao.LibraryEpisodeBindingEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryMatchSuggestionEntity
 import me.him188.ani.app.data.persistent.database.dao.LibraryResourceEntity
+import me.him188.ani.app.data.persistent.database.dao.LibraryScanRootEntity
 import me.him188.ani.app.data.persistent.database.dao.ResourceLibraryDao
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.MediaAssociation
@@ -69,6 +70,28 @@ class ResourceLibraryRepository(
     suspend fun indexForScan(rootId: String, token: String, entry: MediaSourceEntry): Boolean = writes.withLock {
         val resource = entry.toEntity(dao.findResource(entry.reference.sourceId, entry.reference.resourceId)?.id)
         dao.recordScanEntry(rootId, token, resource)
+    }
+
+    suspend fun commitScanMatches(
+        root: LibraryScanRootEntity,
+        expectedBindings: List<LibraryEpisodeBindingEntity>,
+        expectedSuggestions: List<LibraryMatchSuggestionEntity>,
+        expectedResources: List<LibraryResourceEntity>,
+        inputs: List<ResourceAssociationInput>,
+        suggestions: List<LibraryMatchSuggestionEntity>,
+        completedMillis: Long,
+        ruleError: String?,
+    ): Boolean = writes.withLock {
+        val resources = expectedResources.associateBy { it.sourceId to it.resourceKey }
+        val bindings = inputs.map { input ->
+            val resource = resources.getValue(input.entry.reference.sourceId to input.entry.reference.resourceId)
+            LibraryEpisodeBindingEntity(resource.id, resource.sourceId, input.subjectId, input.episodeId,
+                json.encodeToString(Media.serializer(), input.media), input.selectedFilePath)
+        }
+        dao.completeScanWithMatches(root, expectedBindings, expectedSuggestions, expectedResources, bindings,
+            suggestions, completedMillis, ruleError).also { committed ->
+            if (committed) mutableRevision.update { it + 1 }
+        }
     }
 
     suspend fun associate(

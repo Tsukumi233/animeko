@@ -124,11 +124,26 @@ abstract class ResourceLibraryDao {
     @Query("SELECT * FROM library_episode_binding WHERE subjectId = :subjectId AND sourceId = :sourceId")
     abstract fun bindingsForSubject(sourceId: String, subjectId: Int): Flow<List<LibraryEpisodeBindingEntity>>
 
+    @Query("SELECT * FROM library_episode_binding WHERE sourceId = :sourceId")
+    abstract suspend fun bindingsForSourceSnapshot(sourceId: String): List<LibraryEpisodeBindingEntity>
+
+    @Query("SELECT s.* FROM library_match_suggestion s INNER JOIN library_resource r ON r.id = s.resourceId WHERE r.sourceId = :sourceId")
+    abstract suspend fun suggestionsForSourceSnapshot(sourceId: String): List<LibraryMatchSuggestionEntity>
+
+    @Query("UPDATE library_scan_root SET activeScanToken = NULL WHERE sourceId = :sourceId")
+    protected abstract suspend fun invalidateScans(sourceId: String)
+
     @Query("SELECT DISTINCT subjectId FROM library_episode_binding")
     abstract suspend fun associatedSubjectIds(): List<Int>
 
     @Query("DELETE FROM library_episode_binding WHERE resourceId = :resourceId AND subjectId = :subjectId AND episodeId = :episodeId")
-    abstract suspend fun removeBinding(resourceId: String, subjectId: Int, episodeId: Int)
+    protected abstract suspend fun deleteBinding(resourceId: String, subjectId: Int, episodeId: Int)
+
+    @Transaction
+    open suspend fun removeBinding(resourceId: String, subjectId: Int, episodeId: Int) {
+        deleteBinding(resourceId, subjectId, episodeId)
+        findResource(resourceId)?.let { invalidateScans(it.sourceId) }
+    }
 
     @Query("DELETE FROM library_episode_binding WHERE resourceId = :resourceId")
     protected abstract suspend fun removeBindingsForResource(resourceId: String)
@@ -159,6 +174,20 @@ abstract class ResourceLibraryDao {
 
     @Upsert
     abstract suspend fun upsertScanRoot(root: LibraryScanRootEntity)
+
+    @Transaction
+    open suspend fun beginScan(requested: LibraryScanRootEntity, token: String): LibraryScanRootEntity? {
+        val current = findScanRoot(requested.id) ?: return null
+        if (current.sourceId != requested.sourceId || current.referenceJson != requested.referenceJson) return null
+        return current.copy(activeScanToken = token, error = null).also { upsertScanRoot(it) }
+    }
+
+    @Transaction
+    open suspend fun updateMatchingRules(expected: LibraryScanRootEntity, rulesJson: String?): Boolean {
+        if (findScanRoot(expected.id) != expected) return false
+        upsertScanRoot(expected.copy(matchingRuleJson = rulesJson, activeScanToken = null, error = null))
+        return true
+    }
 
     @Upsert
     abstract suspend fun upsertScanEntry(entry: LibraryScanEntryEntity)
@@ -195,6 +224,7 @@ abstract class ResourceLibraryDao {
         upsertResource(resource)
         upsertBinding(binding)
         removeSuggestion(resource.id)
+        invalidateScans(resource.sourceId)
     }
 
     @Query("""
@@ -222,6 +252,40 @@ abstract class ResourceLibraryDao {
         bindings.forEach { upsertBinding(it) }
         resources.forEach { removeSuggestion(it.id) }
         suggestions.forEach { upsertSuggestion(it) }
+        resources.map { it.sourceId }.distinct().forEach { invalidateScans(it) }
+    }
+
+    /** Snapshot comparison and commit share the Room transaction; concurrent manual or automatic decisions win. */
+    @Transaction
+    open suspend fun completeScanWithMatches(
+        expectedRoot: LibraryScanRootEntity,
+        expectedBindings: List<LibraryEpisodeBindingEntity>,
+        expectedSuggestions: List<LibraryMatchSuggestionEntity>,
+        expectedResources: List<LibraryResourceEntity>,
+        bindings: List<LibraryEpisodeBindingEntity>,
+        suggestions: List<LibraryMatchSuggestionEntity>,
+        completedMillis: Long,
+        ruleError: String?,
+    ): Boolean {
+        val token = expectedRoot.activeScanToken ?: return false
+        if (findScanRoot(expectedRoot.id) != expectedRoot) return false
+        if (bindingsForSourceSnapshot(expectedRoot.sourceId).toSet() != expectedBindings.toSet()) return false
+        if (suggestionsForSourceSnapshot(expectedRoot.sourceId).toSet() != expectedSuggestions.toSet()) return false
+        for (resource in expectedResources) if (findResource(resource.id) != resource) return false
+        val resources = expectedResources.associateBy { it.id }
+        require(bindings.all { resources[it.resourceId]?.sourceId == expectedRoot.sourceId && it.sourceId == expectedRoot.sourceId })
+        require(suggestions.all { it.resourceId in resources })
+        if (bindings.any { candidate -> expectedBindings.any { current ->
+                (current.resourceId == candidate.resourceId && current.selectedFilePath == candidate.selectedFilePath) ||
+                    (current.subjectId == candidate.subjectId && current.episodeId == candidate.episodeId)
+            } }) return false
+        require(bindings.map { it.subjectId to it.episodeId }.distinct().size == bindings.size)
+        bindings.forEach { upsertBinding(it) }
+        suggestions.forEach { upsertSuggestion(it) }
+        markUnvisited(expectedRoot.id, token)
+        updateAvailability(expectedRoot.id)
+        upsertScanRoot(expectedRoot.copy(lastCompletedMillis = completedMillis, activeScanToken = null, error = ruleError))
+        return true
     }
 
     /** 仅完整成功且仍是当前扫描的结果可以判定缺失；取消和失败不调用此方法。 */
@@ -238,6 +302,7 @@ abstract class ResourceLibraryDao {
     /** 删除索引及关联；此 DAO 不持有文件系统或远程删除能力。 */
     @Transaction
     open suspend fun removeResource(resourceId: String) {
+        findResource(resourceId)?.let { invalidateScans(it.sourceId) }
         removeBindingsForResource(resourceId)
         removeSuggestion(resourceId)
         deleteScanEntries(resourceId)
